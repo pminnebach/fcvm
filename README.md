@@ -125,7 +125,7 @@ All paths below use the default state directory `~/.fcvm`. Override the root wit
 ```
 
 - **Kernel source**: `fcvm download kernel` resolves the latest vmlinux from Firecracker CI S3 for your architecture; pin with `kernel-url` in config or `--url`.
-- **Rootfs build**: `fcvm build-rootfs` writes to `--output` or the `rootfs` config path.
+- **Rootfs build**: `fcvm build-rootfs` writes to `--output` or the `rootfs` config path. See [BUILD.md](BUILD.md) for detailed rootfs build instructions, Dockerfile requirements, and examples.
 
 ### Per-VM runtime
 
