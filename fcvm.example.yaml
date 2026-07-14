@@ -1,0 +1,17 @@
+firecracker-bin: ~/.fcvm/bin/firecracker
+jailer-bin: ~/.fcvm/bin/jailer
+jailer:
+  chroot-base-dir: ~/.fcvm/jailer
+  uid: 1000
+  gid: 1000
+kernel: ~/.fcvm/images/vmlinux
+rootfs: ~/.fcvm/images/rootfs.ext4
+vcpu-count: 2
+mem-size-mib: 512
+network:
+  tap-ip: 172.16.0.1
+  guest-ip: 172.16.0.2
+env: {}
+expose-kvm: false
+ssh-key: ~/.fcvm/id_ed25519
+wait-timeout: 120

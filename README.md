@@ -38,3 +38,60 @@ The LLM should follow all best practices to build this application. Refer to the
 The latest Firecracker Go SDK release (1.0.0) is from 2022. Verify if you can build the SDK locally and implement it.
 Do not make any assumptions, if you have any questions about a choice to be made, ask the question!
 Commit after every major change.
+
+# fcvm — Firecracker microVM manager
+
+Built with Go, Cobra/Viper, and `firecracker-go-sdk` (latest main pseudo-version).
+
+## Prerequisites
+
+- Linux x86_64/aarch64 with `/dev/kvm`
+- **Run as root** (jailer, tap/NAT networking, NFS exports)
+- Tools: `docker`, `unsquashfs`, `mkfs.ext4`, `ssh`, `ip`, `iptables`
+
+## Build
+
+```bash
+go build -buildvcs=false -o fcvm .
+```
+
+## Quick start
+
+```bash
+# Download firecracker + jailer
+sudo ./fcvm download firecracker
+
+# Download kernel and rootfs (use Firecracker CI URLs)
+sudo ./fcvm download kernel --url 'https://.../vmlinux-...'
+sudo ./fcvm download rootfs --url 'https://.../ubuntu-....squashfs'
+
+# Start a VM (always jailed)
+sudo ./fcvm start myvm --env FOO=bar --mount /data:/mnt/data
+
+# Run commands inside the guest
+sudo ./fcvm exec myvm -- uname -a
+sudo ./fcvm shell myvm
+sudo ./fcvm attach myvm   # serial log
+
+# Stop and cleanup
+sudo ./fcvm stop myvm
+sudo ./fcvm cleanup --all
+```
+
+## Config file
+
+Copy [fcvm.example.yaml](fcvm.example.yaml) to `~/.fcvm.yaml`. Flags and `FCVM_*` env vars override file values.
+
+## Features
+
+| Feature | Command / flag |
+|---------|----------------|
+| Start/stop VMs | `fcvm start`, `fcvm stop` |
+| Always via jailer | default, no opt-out |
+| Download assets | `fcvm download firecracker\|jailer\|kernel\|rootfs` |
+| Docker rootfs | `fcvm build-rootfs --dockerfile path/Dockerfile` |
+| Env injection | `--env KEY=VAL` or config `env:` (MMDS → guest) |
+| Host folder | `--mount host:guest[:ro]` (NFS, block fallback) |
+| Nested KVM | `--expose-kvm` (experimental) |
+| Multi-VM | unique `--id` per VM |
+| Self-check | `fcvm self-check` (skips if no KVM) |

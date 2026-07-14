@@ -1,0 +1,119 @@
+package cmd
+
+import (
+	"fmt"
+	"os"
+	"strings"
+
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
+
+	"github.com/fcvm/fcvm/config"
+)
+
+var (
+	cfgFile string
+	cfg     config.Config
+)
+
+var rootCmd = &cobra.Command{
+	Use:   "fcvm",
+	Short: "Manage Firecracker microVM lifecycle",
+}
+
+func Execute() {
+	if err := rootCmd.Execute(); err != nil {
+		os.Exit(1)
+	}
+}
+
+func init() {
+	cobra.OnInitialize(initConfig)
+	defaults := config.Default()
+
+	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default: $HOME/.fcvm.yaml)")
+	rootCmd.PersistentFlags().String("state-dir", defaults.StateDir, "state directory")
+	rootCmd.PersistentFlags().String("firecracker-bin", defaults.FirecrackerBin, "firecracker binary path")
+	rootCmd.PersistentFlags().String("jailer-bin", defaults.JailerBin, "jailer binary path")
+	rootCmd.PersistentFlags().String("kernel", defaults.Kernel, "kernel image path")
+	rootCmd.PersistentFlags().String("rootfs", defaults.Rootfs, "rootfs ext4 path")
+	rootCmd.PersistentFlags().Int64("vcpu-count", defaults.VCPUCount, "vCPUs per VM")
+	rootCmd.PersistentFlags().Int64("mem-size-mib", defaults.MemSizeMib, "memory MiB per VM")
+	rootCmd.PersistentFlags().String("ssh-key", defaults.SSHKey, "SSH private key path")
+	rootCmd.PersistentFlags().Bool("expose-kvm", false, "enable nested KVM in guest (experimental)")
+	rootCmd.PersistentFlags().Bool("verbose", false, "verbose logging")
+	rootCmd.PersistentFlags().Int("wait-timeout", defaults.WaitTimeoutSec, "seconds to wait for guest SSH")
+
+	_ = viper.BindPFlag("state-dir", rootCmd.PersistentFlags().Lookup("state-dir"))
+	_ = viper.BindPFlag("firecracker-bin", rootCmd.PersistentFlags().Lookup("firecracker-bin"))
+	_ = viper.BindPFlag("jailer-bin", rootCmd.PersistentFlags().Lookup("jailer-bin"))
+	_ = viper.BindPFlag("kernel", rootCmd.PersistentFlags().Lookup("kernel"))
+	_ = viper.BindPFlag("rootfs", rootCmd.PersistentFlags().Lookup("rootfs"))
+	_ = viper.BindPFlag("vcpu-count", rootCmd.PersistentFlags().Lookup("vcpu-count"))
+	_ = viper.BindPFlag("mem-size-mib", rootCmd.PersistentFlags().Lookup("mem-size-mib"))
+	_ = viper.BindPFlag("ssh-key", rootCmd.PersistentFlags().Lookup("ssh-key"))
+	_ = viper.BindPFlag("expose-kvm", rootCmd.PersistentFlags().Lookup("expose-kvm"))
+	_ = viper.BindPFlag("verbose", rootCmd.PersistentFlags().Lookup("verbose"))
+	_ = viper.BindPFlag("wait-timeout", rootCmd.PersistentFlags().Lookup("wait-timeout"))
+
+	viper.SetEnvPrefix("FCVM")
+	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
+	viper.AutomaticEnv()
+}
+
+func initConfig() {
+	defaults := config.Default()
+	viper.SetDefault("state-dir", defaults.StateDir)
+	viper.SetDefault("firecracker-bin", defaults.FirecrackerBin)
+	viper.SetDefault("jailer-bin", defaults.JailerBin)
+	viper.SetDefault("jailer.chroot-base-dir", defaults.Jailer.ChrootBaseDir)
+	viper.SetDefault("jailer.uid", defaults.Jailer.UID)
+	viper.SetDefault("jailer.gid", defaults.Jailer.GID)
+	viper.SetDefault("kernel", defaults.Kernel)
+	viper.SetDefault("rootfs", defaults.Rootfs)
+	viper.SetDefault("vcpu-count", defaults.VCPUCount)
+	viper.SetDefault("mem-size-mib", defaults.MemSizeMib)
+	viper.SetDefault("ssh-key", defaults.SSHKey)
+	viper.SetDefault("wait-timeout", defaults.WaitTimeoutSec)
+	viper.SetDefault("network.tap-ip", defaults.Network.TapIP)
+	viper.SetDefault("network.guest-ip", defaults.Network.GuestIP)
+
+	if cfgFile != "" {
+		viper.SetConfigFile(cfgFile)
+	} else {
+		home, err := os.UserHomeDir()
+		if err == nil {
+			viper.AddConfigPath(home)
+			viper.SetConfigName(".fcvm")
+			viper.SetConfigType("yaml")
+		}
+		viper.AddConfigPath(".")
+	}
+	_ = viper.ReadInConfig()
+}
+
+func loadConfig() (config.Config, error) {
+	c := config.Default()
+	if err := viper.Unmarshal(&c); err != nil {
+		return c, err
+	}
+	if c.Env == nil {
+		c.Env = map[string]string{}
+	}
+	return c, nil
+}
+
+func mountFlag(s string) (config.MountConfig, error) {
+	// host:guest[:ro]
+	parts := strings.Split(s, ":")
+	if len(parts) < 2 {
+		return config.MountConfig{}, fmt.Errorf("mount format: host:guest[:ro]")
+	}
+	m := config.MountConfig{Host: parts[0], Guest: parts[1], Method: "auto"}
+	if len(parts) > 2 && parts[2] == "ro" {
+		m.Mode = "ro"
+	} else {
+		m.Mode = "rw"
+	}
+	return m, nil
+}
