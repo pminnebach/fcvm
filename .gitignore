@@ -1,1 +1,22 @@
+# fcvm binary
 /fcvm
+
+# Go build outputs
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+/bin/
+/dist/
+
+# Go coverage
+*.coverprofile
+coverage.out
+coverage.html
+
+# Local asset downloads (if fetched into repo tree)
+*.tgz
+firecracker-src/
