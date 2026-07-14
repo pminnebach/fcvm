@@ -5,6 +5,7 @@ jailer:
   uid: 1000
   gid: 1000
 kernel: ~/.fcvm/images/vmlinux
+# kernel-url: https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/.../x86_64/vmlinux-6.1.x
 rootfs: ~/.fcvm/images/rootfs.ext4
 vcpu-count: 2
 mem-size-mib: 512

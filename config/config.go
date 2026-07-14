@@ -31,6 +31,7 @@ type Config struct {
 	JailerBin       string            `mapstructure:"jailer-bin"`
 	Jailer          JailerConfig      `mapstructure:"jailer"`
 	Kernel          string            `mapstructure:"kernel"`
+	KernelURL       string            `mapstructure:"kernel-url"`
 	Rootfs          string            `mapstructure:"rootfs"`
 	VCPUCount       int64             `mapstructure:"vcpu-count"`
 	MemSizeMib      int64             `mapstructure:"mem-size-mib"`

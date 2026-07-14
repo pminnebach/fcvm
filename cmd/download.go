@@ -60,7 +60,7 @@ var downloadJailerCmd = &cobra.Command{
 
 var downloadKernelCmd = &cobra.Command{
 	Use:   "kernel",
-	Short: "Download kernel from URL",
+	Short: "Download kernel (Firecracker CI latest by default)",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		c, err := loadConfig()
 		if err != nil {
@@ -68,12 +68,18 @@ var downloadKernelCmd = &cobra.Command{
 		}
 		url, _ := cmd.Flags().GetString("url")
 		if url == "" {
-			return fmt.Errorf("--url is required")
+			url = c.KernelURL
+		}
+		if url == "" {
+			url, err = assets.LatestFirecrackerKernelURL()
+			if err != nil {
+				return fmt.Errorf("kernel URL: %w (pass --url or set kernel-url)", err)
+			}
 		}
 		if err := assets.DownloadKernel(url, c.Kernel); err != nil {
 			return err
 		}
-		fmt.Printf("kernel saved to %s\n", c.Kernel)
+		fmt.Printf("kernel downloaded from %s to %s\n", url, c.Kernel)
 		return nil
 	},
 }
@@ -100,7 +106,7 @@ var downloadRootfsCmd = &cobra.Command{
 
 func init() {
 	downloadJailerCmd.Flags().Bool("build", false, "build jailer from source via devtool")
-	downloadKernelCmd.Flags().String("url", "", "kernel download URL")
+	downloadKernelCmd.Flags().String("url", "", "kernel download URL (default: kernel-url config or Firecracker CI latest)")
 	downloadRootfsCmd.Flags().String("url", "", "rootfs download URL")
 	downloadCmd.AddCommand(downloadFirecrackerCmd, downloadJailerCmd, downloadKernelCmd, downloadRootfsCmd)
 	rootCmd.AddCommand(downloadCmd)

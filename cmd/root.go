@@ -70,6 +70,7 @@ func initConfig() {
 	viper.SetDefault("jailer.uid", defaults.Jailer.UID)
 	viper.SetDefault("jailer.gid", defaults.Jailer.GID)
 	viper.SetDefault("kernel", defaults.Kernel)
+	viper.SetDefault("kernel-url", defaults.KernelURL)
 	viper.SetDefault("rootfs", defaults.Rootfs)
 	viper.SetDefault("vcpu-count", defaults.VCPUCount)
 	viper.SetDefault("mem-size-mib", defaults.MemSizeMib)
