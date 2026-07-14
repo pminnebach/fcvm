@@ -117,7 +117,8 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 			method = "nfs"
 		}
 		if method == "nfs" {
-			exp, err := network.SetupNFSExport(mount.Host, id+"-"+strconv.Itoa(i), mount.Mode == "ro")
+			exportID := id + "-" + strconv.Itoa(i)
+			exp, err := network.SetupNFSExport(mount.Host, exportID, mount.Mode == "ro")
 			if err != nil {
 				m.log.Warnf("NFS unavailable for %s: %v; falling back to block device", mount.Host, err)
 				method = "block"
@@ -126,7 +127,7 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 					Host: exp.ExportPath, Guest: guestPath, Method: "nfs",
 				})
 				mountMeta = append(mountMeta, map[string]string{
-					"host": exp.ExportPath + ":/", "guest": guestPath, "method": "nfs",
+					"host": tapIP + ":" + exp.ExportPath, "guest": guestPath, "method": "nfs",
 				})
 				continue
 			}
@@ -277,6 +278,11 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 	if err := guest.WaitSSH(guestIP, key.PrivateKeyPath, timeout); err != nil {
 		m.log.Warnf("guest ssh not ready: %v", err)
 	}
+	if len(mountMeta) > 0 {
+		if err := guest.Exec(guestIP, key.PrivateKeyPath, []string{"/usr/local/bin/fcvm-apply-mounts.sh"}); err != nil {
+			m.log.Warnf("apply guest mounts: %v", err)
+		}
+	}
 	if len(m.cfg.Env) > 0 {
 		if err := guest.Exec(guestIP, key.PrivateKeyPath, []string{"/usr/local/bin/fcvm-init-env"}); err != nil {
 			m.log.Warnf("inject guest env: %v", err)
@@ -345,7 +351,7 @@ func (m *Manager) Cleanup(all bool, id string) error {
 
 func (m *Manager) cleanupByID(id string) {
 	// tap name is index-based and recorded in state.json; without state we cannot derive it
-	network.TeardownNFSExport(id)
+	network.TeardownNFSExportsForVM(id)
 	m.removeJailerTree(id)
 	_ = RemoveState(m.cfg.StateDir, id)
 }
@@ -367,7 +373,7 @@ func (m *Manager) removeJailerTree(id string) {
 
 func (m *Manager) teardownState(state *State) {
 	network.TeardownTap(state.TapDev)
-	network.TeardownNFSExport(state.ID)
+	network.TeardownNFSExportsForVM(state.ID)
 	if state.ChrootDir != "" {
 		_ = os.RemoveAll(filepath.Dir(state.ChrootDir))
 	}

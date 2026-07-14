@@ -49,6 +49,32 @@ fcvm_mmds_get latest/meta-data/mounts /tmp/fcvm-mounts.json 2>/dev/null || exit 
 # mounts applied by guest agent reading MMDS at boot; see fcvm-start.sh
 `
 
+const applyMountsScript = `#!/bin/sh
+. /usr/local/bin/fcvm-mmds.sh
+fcvm_mmds_route
+fcvm_mmds_get latest/meta-data/mounts /tmp/fcvm-mounts.json 2>/dev/null || true
+[ -s /tmp/fcvm-mounts.json ] || exit 0
+grep -o '"guest"[[:space:]]*:[[:space:]]*"[^"]*"' /tmp/fcvm-mounts.json | cut -d'"' -f4 | while read -r gp; do
+  chunk=$(grep -B5 "\"guest\"[[:space:]]*:[[:space:]]*\"$gp\"" /tmp/fcvm-mounts.json | tail -6)
+  method=$(echo "$chunk" | sed -n 's/.*"method"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+  hp=$(echo "$chunk" | sed -n 's/.*"host"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+  [ "$method" = "block" ] && continue
+  mkdir -p "$gp"
+  mount -t nfs -o nolock "$hp" "$gp" 2>/dev/null || true
+done
+block_i=0
+for gp in $(grep -B3 '"method"[[:space:]]*:[[:space:]]*"block"' /tmp/fcvm-mounts.json | sed -n 's/.*"guest"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'); do
+  dev=""
+  [ "$block_i" -eq 0 ] && [ -b /dev/vdb ] && dev=/dev/vdb
+  [ "$block_i" -eq 1 ] && [ -b /dev/vdc ] && dev=/dev/vdc
+  [ "$block_i" -eq 2 ] && [ -b /dev/vdd ] && dev=/dev/vdd
+  block_i=$((block_i + 1))
+  [ -n "$dev" ] || continue
+  mkdir -p "$gp"
+  mount "$dev" "$gp" 2>/dev/null || true
+done
+`
+
 const startScript = `#!/bin/sh
 [ -f /etc/fcvm/network ] && . /etc/fcvm/network
 . /usr/local/bin/fcvm-mmds.sh
@@ -68,21 +94,7 @@ if ! ip -o -4 addr show dev "$IF" scope global 2>/dev/null | grep -q .; then
 fi
 fcvm_mmds_route
 echo nameserver 8.8.8.8 > /etc/resolv.conf
-fcvm_mmds_get latest/meta-data/mounts /tmp/fcvm-mounts.json 2>/dev/null || true
-if [ -s /tmp/fcvm-mounts.json ]; then
-  grep -o '"guest"[[:space:]]*:[[:space:]]*"[^"]*"' /tmp/fcvm-mounts.json | cut -d'"' -f4 | while read -r gp; do
-    grep -B5 "\"guest\"[[:space:]]*:[[:space:]]*\"$gp\"" /tmp/fcvm-mounts.json | grep '"host"' | head -1 | cut -d'"' -f4 | while read -r hp; do
-      mkdir -p "$gp"
-      mount -t nfs -o nolock "$hp" "$gp" 2>/dev/null || true
-    done
-  done
-fi
-for dev in /dev/vdb /dev/vdc; do
-  if [ -b "$dev" ]; then
-    mkdir -p /mnt/block
-    mount "$dev" /mnt/block 2>/dev/null && break || true
-  fi
-done
+/usr/local/bin/fcvm-apply-mounts.sh || true
 /usr/local/bin/fcvm-init-env || true
 `
 
@@ -108,10 +120,11 @@ WantedBy=multi-user.target
 
 func InjectHooks(rootDir string) error {
 	files := map[string]string{
-		"usr/local/bin/fcvm-mmds.sh":   mmdsHelpers,
-		"usr/local/bin/fcvm-init-env":  initEnvScript,
-		"usr/local/bin/fcvm-mounts.sh": mountsScript,
-		"usr/local/bin/fcvm-start.sh":  startScript,
+		"usr/local/bin/fcvm-mmds.sh":        mmdsHelpers,
+		"usr/local/bin/fcvm-init-env":     initEnvScript,
+		"usr/local/bin/fcvm-mounts.sh":    mountsScript,
+		"usr/local/bin/fcvm-apply-mounts.sh": applyMountsScript,
+		"usr/local/bin/fcvm-start.sh":     startScript,
 		"etc/profile.d/fcvm.sh":        profileScript,
 	}
 	for rel, content := range files {
