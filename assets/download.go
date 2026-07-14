@@ -43,6 +43,17 @@ func DownloadFile(url, dest string) error {
 	return os.Rename(tmp, dest)
 }
 
+func firecrackerArch() string {
+	switch runtime.GOARCH {
+	case "amd64":
+		return "x86_64"
+	case "arm64":
+		return "aarch64"
+	default:
+		return runtime.GOARCH
+	}
+}
+
 func LatestFirecrackerRelease() (string, error) {
 	req, _ := http.NewRequest(http.MethodHead, "https://github.com/firecracker-microvm/firecracker/releases/latest", nil)
 	resp, err := http.DefaultClient.Do(req)
@@ -51,11 +62,23 @@ func LatestFirecrackerRelease() (string, error) {
 	}
 	resp.Body.Close()
 	loc := resp.Header.Get("Location")
-	if loc == "" {
+	finalURL := ""
+	if resp.Request != nil && resp.Request.URL != nil {
+		finalURL = resp.Request.URL.String()
+	}
+	resolveURL := loc
+	if resolveURL == "" {
+		resolveURL = finalURL
+	}
+	if resolveURL == "" {
 		return "", fmt.Errorf("no redirect from releases/latest")
 	}
-	parts := strings.Split(strings.TrimSuffix(loc, "/"), "/")
-	return parts[len(parts)-1], nil
+	parts := strings.Split(strings.TrimSuffix(resolveURL, "/"), "/")
+	tag := parts[len(parts)-1]
+	if tag == "" || tag == "latest" {
+		return "", fmt.Errorf("could not parse release tag from %q", resolveURL)
+	}
+	return tag, nil
 }
 
 func DownloadFirecracker(destDir string) (string, error) {
@@ -63,7 +86,7 @@ func DownloadFirecracker(destDir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	arch := runtime.GOARCH
+	arch := firecrackerArch()
 	url := fmt.Sprintf("https://github.com/firecracker-microvm/firecracker/releases/download/%s/firecracker-%s-%s.tgz", ver, ver, arch)
 	tgz := filepath.Join(destDir, "firecracker.tgz")
 	if err := DownloadFile(url, tgz); err != nil {
