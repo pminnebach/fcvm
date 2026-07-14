@@ -23,3 +23,7 @@ firecracker-src/
 
 # Bash completion
 fcvm-completion.bash
+
+# Agent logs
+.cursor/debug-*.log
+*.log

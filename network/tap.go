@@ -7,6 +7,13 @@ import (
 	"strings"
 )
 
+const maxIfNameLen = 15 // Linux IFNAMSIZ - 1
+
+// TapDevName returns a Linux-safe TAP interface name for the VM network index.
+func TapDevName(index int) string {
+	return fmt.Sprintf("fcvm-tap-%d", index)
+}
+
 func SetupTap(tapDev, tapIP, guestIP string) error {
 	mask := "/30"
 	if err := run("ip", "link", "del", tapDev); err != nil && !strings.Contains(err.Error(), "Cannot find device") {

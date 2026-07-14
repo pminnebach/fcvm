@@ -82,7 +82,7 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 	// prepare rootfs copy with SSH key for this VM
 	index := m.nextVMIndex()
 	tapIP, guestIP := network.SubnetForIndex(m.cfg.Network.TapIP, m.cfg.Network.GuestIP, index)
-	tapDev := fmt.Sprintf("fcvm-tap-%s", id)
+	tapDev := network.TapDevName(index)
 	guestMAC := network.GuestMAC(guestIP)
 
 	rootfsCopy := filepath.Join(vmDir, "rootfs.ext4")
@@ -334,7 +334,7 @@ func (m *Manager) Cleanup(all bool, id string) error {
 }
 
 func (m *Manager) cleanupByID(id string) {
-	network.TeardownTap(fmt.Sprintf("fcvm-tap-%s", id))
+	// tap name is index-based and recorded in state.json; without state we cannot derive it
 	network.TeardownNFSExport(id)
 	m.removeJailerTree(id)
 	_ = RemoveState(m.cfg.StateDir, id)
