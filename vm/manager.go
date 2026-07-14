@@ -235,11 +235,16 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 	}
 
 	meta := map[string]interface{}{
-		"env":    m.cfg.Env,
-		"mounts": mountMeta,
+		"latest": map[string]interface{}{
+			"meta-data": map[string]interface{}{
+				"env":    m.cfg.Env,
+				"mounts": mountMeta,
+			},
+		},
 	}
-	if err := machine.SetMetadata(ctx, meta); err != nil {
-		m.log.Warnf("set MMDS metadata: %v", err)
+	metaErr := machine.SetMetadata(ctx, meta)
+	if metaErr != nil {
+		m.log.Warnf("set MMDS metadata: %v", metaErr)
 	}
 
 	pid, _ := machine.PID()
@@ -271,6 +276,11 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 	timeout := time.Duration(m.cfg.WaitTimeoutSec) * time.Second
 	if err := guest.WaitSSH(guestIP, key.PrivateKeyPath, timeout); err != nil {
 		m.log.Warnf("guest ssh not ready: %v", err)
+	}
+	if len(m.cfg.Env) > 0 {
+		if err := guest.Exec(guestIP, key.PrivateKeyPath, []string{"/usr/local/bin/fcvm-init-env"}); err != nil {
+			m.log.Warnf("inject guest env: %v", err)
+		}
 	}
 
 	go m.waitVM(ctx, machine, id)
@@ -419,7 +429,13 @@ func syncDirToExt4(hostDir, img string) error {
 
 // MetadataJSON helper for tests
 func MetadataJSON(env map[string]string, mounts []map[string]string) string {
-	b, _ := json.Marshal(map[string]interface{}{"env": env, "mounts": mounts})
+	b, _ := json.Marshal(map[string]interface{}{
+		"latest": map[string]interface{}{
+			"meta-data": map[string]interface{}{
+				"env": env, "mounts": mounts,
+			},
+		},
+	})
 	return string(b)
 }
 

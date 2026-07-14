@@ -8,15 +8,32 @@ import (
 	"strings"
 )
 
-const initEnvScript = `#!/bin/sh
-set -e
+const mmdsHelpers = `#!/bin/sh
 MMDS=169.254.169.254
-TOKEN=$(curl -s -X PUT "http://${MMDS}/latest/api/token" -H "X-metadata-token-ttl-seconds: 60" 2>/dev/null || true)
-HDR=""
-[ -n "$TOKEN" ] && HDR="-H X-metadata-token: $TOKEN"
-curl -s $HDR "http://${MMDS}/latest/meta-data/env" -o /tmp/fcvm-env.json 2>/dev/null || exit 0
+
+fcvm_mmds_route() {
+  IF="${FCVM_IFACE:-eth0}"
+  [ -f /etc/fcvm/network ] && . /etc/fcvm/network
+  ip route add "$MMDS" dev "$IF" 2>/dev/null || true
+}
+
+fcvm_mmds_get() {
+  path=$1
+  out=$2
+  fcvm_mmds_route
+  token=$(curl -sf -X PUT "http://${MMDS}/latest/api/token" \
+    -H "X-metadata-token-ttl-seconds: 60") || return 1
+  curl -sf -H "X-metadata-token: $token" -H "Accept: application/json" \
+    "http://${MMDS}/${path}" -o "$out"
+}
+`
+
+const initEnvScript = `#!/bin/sh
+. /usr/local/bin/fcvm-mmds.sh
+fcvm_mmds_get latest/meta-data/env /tmp/fcvm-env.json 2>/dev/null || exit 0
 [ -s /tmp/fcvm-env.json ] || exit 0
 mkdir -p /etc/fcvm
+: > /etc/fcvm/env
 # ponytail: naive KEY=VAL parse; upgrade path: jq
 grep -o '"[^"]*"[[:space:]]*:[[:space:]]*"[^"]*"' /tmp/fcvm-env.json | while read -r pair; do
   key=$(echo "$pair" | cut -d'"' -f2)
@@ -26,20 +43,15 @@ done
 `
 
 const mountsScript = `#!/bin/sh
-set -e
-MMDS=169.254.169.254
-TOKEN=$(curl -s -X PUT "http://${MMDS}/latest/api/token" -H "X-metadata-token-ttl-seconds: 60" 2>/dev/null || true)
-HDR=""
-[ -n "$TOKEN" ] && HDR="-H X-metadata-token: $TOKEN"
-curl -s $HDR "http://${MMDS}/latest/meta-data/mounts" -o /tmp/fcvm-mounts.json 2>/dev/null || exit 0
+. /usr/local/bin/fcvm-mmds.sh
+fcvm_mmds_get latest/meta-data/mounts /tmp/fcvm-mounts.json 2>/dev/null || exit 0
 [ -s /tmp/fcvm-mounts.json ] || exit 0
 # mounts applied by guest agent reading MMDS at boot; see fcvm-start.sh
 `
 
 const startScript = `#!/bin/sh
-set -e
 [ -f /etc/fcvm/network ] && . /etc/fcvm/network
-/usr/local/bin/fcvm-init-env || true
+. /usr/local/bin/fcvm-mmds.sh
 IF="${FCVM_IFACE:-eth0}"
 if ! ip link show "$IF" >/dev/null 2>&1; then
   IF=$(ip -o link show | awk -F': ' '$2 != "lo" {print $2; exit}')
@@ -54,13 +66,9 @@ if ! ip -o -4 addr show dev "$IF" scope global 2>/dev/null | grep -q .; then
   ip addr add "${FCVM_GUEST_IP:-172.16.0.2}/30" dev "$IF" 2>/dev/null || true
   ip route add default via "$GW" dev "$IF" 2>/dev/null || true
 fi
+fcvm_mmds_route
 echo nameserver 8.8.8.8 > /etc/resolv.conf
-# NFS mounts from MMDS
-MMDS=169.254.169.254
-TOKEN=$(curl -s -X PUT "http://${MMDS}/latest/api/token" -H "X-metadata-token-ttl-seconds: 60" 2>/dev/null || true)
-HDR=""
-[ -n "$TOKEN" ] && HDR="-H X-metadata-token: $TOKEN"
-curl -s $HDR "http://${MMDS}/latest/meta-data/mounts" -o /tmp/fcvm-mounts.json 2>/dev/null || true
+fcvm_mmds_get latest/meta-data/mounts /tmp/fcvm-mounts.json 2>/dev/null || true
 if [ -s /tmp/fcvm-mounts.json ]; then
   grep -o '"guest"[[:space:]]*:[[:space:]]*"[^"]*"' /tmp/fcvm-mounts.json | cut -d'"' -f4 | while read -r gp; do
     grep -B5 "\"guest\"[[:space:]]*:[[:space:]]*\"$gp\"" /tmp/fcvm-mounts.json | grep '"host"' | head -1 | cut -d'"' -f4 | while read -r hp; do
@@ -69,17 +77,38 @@ if [ -s /tmp/fcvm-mounts.json ]; then
     done
   done
 fi
-# block device mounts (secondary virtio drive)
 for dev in /dev/vdb /dev/vdc; do
-  [ -b "$dev" ] && mkdir -p /mnt/block && mount "$dev" /mnt/block 2>/dev/null && break
+  if [ -b "$dev" ]; then
+    mkdir -p /mnt/block
+    mount "$dev" /mnt/block 2>/dev/null && break || true
+  fi
 done
+/usr/local/bin/fcvm-init-env || true
 `
 
-const profileScript = `[ -f /etc/fcvm/env ] && . /etc/fcvm/env
+const profileScript = `if [ ! -s /etc/fcvm/env ]; then
+  /usr/local/bin/fcvm-init-env 2>/dev/null || true
+fi
+[ -f /etc/fcvm/env ] && . /etc/fcvm/env
+`
+
+const systemdUnit = `[Unit]
+Description=fcvm guest bootstrap
+After=network.target
+DefaultDependencies=yes
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/fcvm-start.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
 `
 
 func InjectHooks(rootDir string) error {
 	files := map[string]string{
+		"usr/local/bin/fcvm-mmds.sh":   mmdsHelpers,
 		"usr/local/bin/fcvm-init-env":  initEnvScript,
 		"usr/local/bin/fcvm-mounts.sh": mountsScript,
 		"usr/local/bin/fcvm-start.sh":  startScript,
@@ -94,7 +123,23 @@ func InjectHooks(rootDir string) error {
 			return err
 		}
 	}
-	// systemd oneshot or rc.local
+	// systemd oneshot (debuerreotype ignores rc.local) + rc.local fallback
+	unitDir := filepath.Join(rootDir, "etc/systemd/system")
+	if err := os.MkdirAll(unitDir, 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(unitDir, "fcvm-start.service"), []byte(systemdUnit), 0o644); err != nil {
+		return err
+	}
+	wantDir := filepath.Join(rootDir, "etc/systemd/system/multi-user.target.wants")
+	if err := os.MkdirAll(wantDir, 0o755); err != nil {
+		return err
+	}
+	link := filepath.Join(wantDir, "fcvm-start.service")
+	_ = os.Remove(link)
+	if err := os.Symlink("../fcvm-start.service", link); err != nil {
+		return err
+	}
 	rc := filepath.Join(rootDir, "etc/rc.local")
 	rcContent := `#!/bin/sh
 /usr/local/bin/fcvm-start.sh
