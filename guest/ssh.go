@@ -66,6 +66,8 @@ func WaitSSH(host, keyPath string, timeout time.Duration) error {
 			"-o", "StrictHostKeyChecking=no",
 			"-o", "UserKnownHostsFile=/dev/null",
 			"-o", "ConnectTimeout=2",
+			"-o", "BatchMode=yes",
+			"-o", "PasswordAuthentication=no",
 			"root@"+host, "true",
 		).Run(); err == nil {
 			return nil
@@ -80,6 +82,8 @@ func Exec(host, keyPath string, args []string) error {
 		"-i", keyPath,
 		"-o", "StrictHostKeyChecking=no",
 		"-o", "UserKnownHostsFile=/dev/null",
+		"-o", "BatchMode=yes",
+		"-o", "PasswordAuthentication=no",
 		"root@" + host,
 	}
 	cmdArgs = append(cmdArgs, args...)
@@ -95,6 +99,8 @@ func Shell(host, keyPath string) error {
 		"-i", keyPath,
 		"-o", "StrictHostKeyChecking=no",
 		"-o", "UserKnownHostsFile=/dev/null",
+		"-o", "BatchMode=yes",
+		"-o", "PasswordAuthentication=no",
 		"-t",
 		"root@"+host,
 	)

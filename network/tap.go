@@ -21,6 +21,7 @@ func SetupTap(tapDev, tapIP, guestIP string) error {
 	if err := run("ip", "link", "set", "dev", tapDev, "up"); err != nil {
 		return fmt.Errorf("bring tap up: %w", err)
 	}
+	_ = run("sh", "-c", fmt.Sprintf("echo 1 > /proc/sys/net/ipv4/conf/%s/proxy_arp", tapDev))
 	if err := run("sh", "-c", "echo 1 > /proc/sys/net/ipv4/ip_forward"); err != nil {
 		return fmt.Errorf("enable ip_forward: %w", err)
 	}

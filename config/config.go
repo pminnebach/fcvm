@@ -3,7 +3,9 @@ package config
 import (
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
+	"strings"
 )
 
 type JailerConfig struct {
@@ -45,8 +47,34 @@ type Config struct {
 	VMID            string            `mapstructure:"-"`
 }
 
+func UserHomeDir() (string, error) {
+	if u := os.Getenv("SUDO_USER"); u != "" {
+		if entry, err := user.Lookup(u); err == nil && entry.HomeDir != "" {
+			return entry.HomeDir, nil
+		}
+	}
+	return os.UserHomeDir()
+}
+
+func ExpandPath(path string) string {
+	if path == "" || path[0] != '~' {
+		return path
+	}
+	home, err := UserHomeDir()
+	if err != nil {
+		return path
+	}
+	if path == "~" {
+		return home
+	}
+	if strings.HasPrefix(path, "~/") {
+		return filepath.Join(home, path[2:])
+	}
+	return path
+}
+
 func Default() Config {
-	home, _ := os.UserHomeDir()
+	home, _ := UserHomeDir()
 	state := filepath.Join(home, ".fcvm")
 	return Config{
 		StateDir:       state,

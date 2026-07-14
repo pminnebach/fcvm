@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 )
 
 const initEnvScript = `#!/bin/sh
@@ -37,12 +38,22 @@ curl -s $HDR "http://${MMDS}/latest/meta-data/mounts" -o /tmp/fcvm-mounts.json 2
 
 const startScript = `#!/bin/sh
 set -e
+[ -f /etc/fcvm/network ] && . /etc/fcvm/network
 /usr/local/bin/fcvm-init-env || true
-# network: default route via tap gateway
-GW="${FCVM_GATEWAY:-172.16.0.1}"
-ip link set eth0 up 2>/dev/null || true
-ip addr add "${FCVM_GUEST_IP:-172.16.0.2}/30" dev eth0 2>/dev/null || true
-ip route add default via "$GW" dev eth0 2>/dev/null || true
+IF="${FCVM_IFACE:-eth0}"
+if ! ip link show "$IF" >/dev/null 2>&1; then
+  IF=$(ip -o link show | awk -F': ' '$2 != "lo" {print $2; exit}')
+fi
+[ -n "$IF" ] || IF=eth0
+mkdir -p /root/.ssh
+chmod 700 /root /root/.ssh
+[ -f /root/.ssh/authorized_keys ] && chmod 600 /root/.ssh/authorized_keys
+if ! ip -o -4 addr show dev "$IF" scope global 2>/dev/null | grep -q .; then
+  GW="${FCVM_GATEWAY:-172.16.0.1}"
+  ip link set "$IF" up 2>/dev/null || true
+  ip addr add "${FCVM_GUEST_IP:-172.16.0.2}/30" dev "$IF" 2>/dev/null || true
+  ip route add default via "$GW" dev "$IF" 2>/dev/null || true
+fi
 echo nameserver 8.8.8.8 > /etc/resolv.conf
 # NFS mounts from MMDS
 MMDS=169.254.169.254
@@ -96,12 +107,51 @@ exit 0
 }
 
 func InjectSSHKey(rootDir, pubKey string) error {
-	dir := filepath.Join(rootDir, "root/.ssh")
+	rootHome := filepath.Join(rootDir, "root")
+	if err := os.MkdirAll(rootHome, 0o700); err != nil {
+		return err
+	}
+	if err := os.Chmod(rootHome, 0o700); err != nil {
+		return err
+	}
+	dir := filepath.Join(rootHome, ".ssh")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return err
+	}
 	authKeys := filepath.Join(dir, "authorized_keys")
-	return os.WriteFile(authKeys, []byte(pubKey+"\n"), 0o600)
+	if err := os.WriteFile(authKeys, []byte(strings.TrimSpace(pubKey)+"\n"), 0o600); err != nil {
+		return err
+	}
+	if err := os.Chmod(authKeys, 0o600); err != nil {
+		return err
+	}
+	for _, p := range []string{rootHome, dir, authKeys} {
+		if err := os.Chown(p, 0, 0); err != nil {
+			return err
+		}
+	}
+	return injectSSHConfig(rootDir)
+}
+
+func injectSSHConfig(rootDir string) error {
+	dir := filepath.Join(rootDir, "etc/ssh/sshd_config.d")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	cfg := "PermitRootLogin prohibit-password\nPubkeyAuthentication yes\nPasswordAuthentication no\nAuthorizedKeysFile .ssh/authorized_keys\n"
+	return os.WriteFile(filepath.Join(dir, "fcvm.conf"), []byte(cfg), 0o644)
+}
+
+func InjectNetwork(rootDir, guestIP, tapIP string) error {
+	dir := filepath.Join(rootDir, "etc/fcvm")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	content := fmt.Sprintf("FCVM_GUEST_IP=%s\nFCVM_GATEWAY=%s\nFCVM_IFACE=eth0\n", guestIP, tapIP)
+	return os.WriteFile(filepath.Join(dir, "network"), []byte(content), 0o644)
 }
 
 func PatchMounted(mountPoint, ext4Path, sshPubKey string) error {

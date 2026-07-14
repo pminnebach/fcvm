@@ -82,7 +82,7 @@ func initConfig() {
 	if cfgFile != "" {
 		viper.SetConfigFile(cfgFile)
 	} else {
-		home, err := os.UserHomeDir()
+		home, err := config.UserHomeDir()
 		if err == nil {
 			viper.AddConfigPath(home)
 			viper.SetConfigName(".fcvm")
@@ -101,6 +101,13 @@ func loadConfig() (config.Config, error) {
 	if c.Env == nil {
 		c.Env = map[string]string{}
 	}
+	c.StateDir = config.ExpandPath(c.StateDir)
+	c.FirecrackerBin = config.ExpandPath(c.FirecrackerBin)
+	c.JailerBin = config.ExpandPath(c.JailerBin)
+	c.Jailer.ChrootBaseDir = config.ExpandPath(c.Jailer.ChrootBaseDir)
+	c.Kernel = config.ExpandPath(c.Kernel)
+	c.Rootfs = config.ExpandPath(c.Rootfs)
+	c.SSHKey = config.ExpandPath(c.SSHKey)
 	return c, nil
 }
 

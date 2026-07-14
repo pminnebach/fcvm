@@ -3,12 +3,14 @@ package vm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -53,6 +55,8 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 	if _, err := LoadState(m.cfg.StateDir, id); err == nil {
 		return nil, fmt.Errorf("VM %q already exists; stop it first", id)
 	}
+	m.removeJailerTree(id)
+
 	if err := m.cfg.Validate(); err != nil {
 		return nil, err
 	}
@@ -66,6 +70,9 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 	if err := os.MkdirAll(vmDir, 0o755); err != nil {
 		return nil, err
 	}
+	if err := os.MkdirAll(m.cfg.Jailer.ChrootBaseDir, 0o755); err != nil {
+		return nil, fmt.Errorf("create jailer chroot base %q: %w", m.cfg.Jailer.ChrootBaseDir, err)
+	}
 
 	key, err := guest.LoadOrCreateKey(m.cfg.SSHKey)
 	if err != nil {
@@ -73,6 +80,11 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 	}
 
 	// prepare rootfs copy with SSH key for this VM
+	index := m.nextVMIndex()
+	tapIP, guestIP := network.SubnetForIndex(m.cfg.Network.TapIP, m.cfg.Network.GuestIP, index)
+	tapDev := fmt.Sprintf("fcvm-tap-%s", id)
+	guestMAC := network.GuestMAC(guestIP)
+
 	rootfsCopy := filepath.Join(vmDir, "rootfs.ext4")
 	if err := copyFile(m.cfg.Rootfs, rootfsCopy); err != nil {
 		return nil, fmt.Errorf("copy rootfs: %w", err)
@@ -80,11 +92,12 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 	if err := assets.PatchExt4(rootfsCopy, key.PublicKey); err != nil {
 		return nil, fmt.Errorf("patch rootfs: %w", err)
 	}
-
-	index := m.nextVMIndex()
-	tapIP, guestIP := network.SubnetForIndex(m.cfg.Network.TapIP, m.cfg.Network.GuestIP, index)
-	tapDev := fmt.Sprintf("fcvm-tap-%s", id)
-	guestMAC := network.GuestMAC(guestIP)
+	if err := assets.PatchNetwork(rootfsCopy, guestIP, tapIP); err != nil {
+		return nil, fmt.Errorf("patch guest network: %w", err)
+	}
+	if err := m.chownForJailer(rootfsCopy); err != nil {
+		return nil, err
+	}
 
 	if err := network.SetupTap(tapDev, tapIP, guestIP); err != nil {
 		return nil, err
@@ -124,6 +137,10 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 				network.TeardownTap(tapDev)
 				return nil, err
 			}
+			if err := m.chownForJailer(img); err != nil {
+				network.TeardownTap(tapDev)
+				return nil, err
+			}
 			blockImages = append(blockImages, img)
 			mountStates = append(mountStates, MountState{
 				Host: mount.Host, Guest: guestPath, Method: "block", Device: img,
@@ -134,13 +151,16 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 		}
 	}
 
-	socketPath := filepath.Join(vmDir, "firecracker.sock")
-	logPath := filepath.Join(vmDir, "firecracker.log")
+	socketPath := "firecracker.sock"
+	logPath := "firecracker.log"
 
-	kernelArgs := "console=ttyS0 reboot=k panic=1 pci=on ip=" + guestIP + "::" + tapIP + ":255.255.255.252::eth0:off"
+	kernelArgs := "console=ttyS0 reboot=k panic=1 net.ifnames=0 biosdevname=0"
 	if m.cfg.ExposeKVM {
-		kernelArgs += " fcvm.kvm=1"
+		kernelArgs += " pci=on fcvm.kvm=1"
 	}
+
+	uid, gid, numa := m.cfg.Jailer.UID, m.cfg.Jailer.GID, 0
+	cgroupVer := jailerCgroupVersion()
 
 	drives := []models.Drive{{
 		DriveID:      firecracker.String("rootfs"),
@@ -157,7 +177,6 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 		})
 	}
 
-	uid, gid, numa := m.cfg.Jailer.UID, m.cfg.Jailer.GID, 0
 	fcCfg := firecracker.Config{
 		VMID:            id,
 		SocketPath:      socketPath,
@@ -181,6 +200,7 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 					},
 					Gateway:     net.ParseIP(tapIP),
 					Nameservers: []string{"8.8.8.8"},
+					IfName:      "eth0",
 				},
 			},
 			AllowMMDS: true,
@@ -193,6 +213,7 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 			UID:           &uid,
 			GID:           &gid,
 			NumaNode:      &numa,
+			CgroupVersion: cgroupVer,
 			ChrootBaseDir: m.cfg.Jailer.ChrootBaseDir,
 			ChrootStrategy: firecracker.NewNaiveChrootStrategy(
 				filepath.Base(m.cfg.Kernel),
@@ -203,11 +224,13 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 	machine, err := firecracker.NewMachine(ctx, fcCfg, firecracker.WithLogger(m.log))
 	if err != nil {
 		network.TeardownTap(tapDev)
+		m.removeJailerTree(id)
 		return nil, fmt.Errorf("create machine: %w", err)
 	}
 
 	if err := machine.Start(ctx); err != nil {
 		network.TeardownTap(tapDev)
+		m.removeJailerTree(id)
 		return nil, fmt.Errorf("start machine: %w", err)
 	}
 
@@ -222,17 +245,19 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 	pid, _ := machine.PID()
 
 	chrootDir := filepath.Join(m.cfg.Jailer.ChrootBaseDir, "firecracker", id, "root")
+	hostSocketPath := machine.Cfg.SocketPath
+	hostLogPath := filepath.Join(chrootDir, logPath)
 
 	state := &State{
 		ID:          id,
 		PID:         pid,
-		SocketPath:  socketPath,
+		SocketPath:  hostSocketPath,
 		TapDev:      tapDev,
 		GuestIP:     guestIP,
 		GuestMAC:    guestMAC,
 		SSHKey:      key.PrivateKeyPath,
 		ChrootDir:   chrootDir,
-		LogPath:     logPath,
+		LogPath:     hostLogPath,
 		StartedAt:   time.Now(),
 		Mounts:      mountStates,
 		BlockImages: blockImages,
@@ -298,17 +323,43 @@ func (m *Manager) Cleanup(all bool, id string) error {
 	}
 	state, err := LoadState(m.cfg.StateDir, id)
 	if err != nil {
-		return err
+		if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		m.cleanupByID(id)
+		return nil
 	}
 	m.teardownState(state)
 	return RemoveState(m.cfg.StateDir, id)
+}
+
+func (m *Manager) cleanupByID(id string) {
+	network.TeardownTap(fmt.Sprintf("fcvm-tap-%s", id))
+	network.TeardownNFSExport(id)
+	m.removeJailerTree(id)
+	_ = RemoveState(m.cfg.StateDir, id)
+}
+
+func (m *Manager) chownForJailer(path string) error {
+	if err := os.Chown(path, m.cfg.Jailer.UID, m.cfg.Jailer.GID); err != nil {
+		return fmt.Errorf("chown %q for jailer uid %d: %w", path, m.cfg.Jailer.UID, err)
+	}
+	return nil
+}
+
+func (m *Manager) jailerTreeDir(id string) string {
+	return filepath.Join(m.cfg.Jailer.ChrootBaseDir, "firecracker", id)
+}
+
+func (m *Manager) removeJailerTree(id string) {
+	_ = os.RemoveAll(m.jailerTreeDir(id))
 }
 
 func (m *Manager) teardownState(state *State) {
 	network.TeardownTap(state.TapDev)
 	network.TeardownNFSExport(state.ID)
 	if state.ChrootDir != "" {
-		_ = os.RemoveAll(filepath.Dir(filepath.Dir(state.ChrootDir)))
+		_ = os.RemoveAll(filepath.Dir(state.ChrootDir))
 	}
 	_ = os.Remove(state.SocketPath)
 }
@@ -370,4 +421,19 @@ func syncDirToExt4(hostDir, img string) error {
 func MetadataJSON(env map[string]string, mounts []map[string]string) string {
 	b, _ := json.Marshal(map[string]interface{}{"env": env, "mounts": mounts})
 	return string(b)
+}
+
+// jailerCgroupVersion picks cgroup v1 when legacy hierarchies are mounted, else v2.
+func jailerCgroupVersion() string {
+	data, err := os.ReadFile("/proc/mounts")
+	if err != nil {
+		return "2"
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		f := strings.Fields(line)
+		if len(f) >= 1 && f[0] == "cgroup" {
+			return "1"
+		}
+	}
+	return "2"
 }
