@@ -45,7 +45,7 @@ func BuildFromDockerfile(dockerfile, tag, outputExt4 string, sshPubKey string) e
 	if err := os.Remove(outputExt4); err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	if out, err := exec.Command("truncate", "-s", "2G", outputExt4).CombinedOutput(); err != nil {
+	if out, err := exec.Command("truncate", "-s", "4G", outputExt4).CombinedOutput(); err != nil {
 		return fmt.Errorf("truncate: %s: %w", out, err)
 	}
 	if out, err := exec.Command("mkfs.ext4", "-d", root, "-F", outputExt4).CombinedOutput(); err != nil {
