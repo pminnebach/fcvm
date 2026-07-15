@@ -1,0 +1,55 @@
+FROM ubuntu:26.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    udev \
+    systemd-sysv \
+    openssh-server \
+    iproute2 \
+    curl \
+    nfs-common \
+    haveged \
+    tzdata \
+  && apt-get clean \
+  && rm -rf /var/lib/apt/lists/*
+
+# RUN echo ubuntu-fc-uvm > /etc/hostname \
+#   && passwd -d root \
+#   && mkdir -p /etc/ssh/sshd_config.d \
+#   && printf 'PermitRootLogin yes\nPasswordAuthentication yes\n' \
+#     > /etc/ssh/sshd_config.d/99-microvm.conf \
+#   && ln -sf /usr/share/zoneinfo/Europe/Brussels /etc/localtime \
+#   && dpkg-reconfigure -fnoninteractive tzdata
+
+# RUN mkdir -p /etc/systemd/system/serial-getty@ttyS0.service.d
+
+# COPY files/fcnet-setup.sh /usr/local/bin/fcnet-setup.sh
+# COPY files/fcnet.service /etc/systemd/system/fcnet.service
+# COPY files/haveged-early.service /etc/systemd/system/haveged-early.service
+# COPY files/var-lib-systemd.mount /etc/systemd/system/var-lib-systemd.mount
+# COPY files/serial-getty-ttyS0.conf \
+#   /etc/systemd/system/serial-getty@ttyS0.service.d/override.conf
+# COPY files/load-agent-env.sh /usr/local/bin/load-agent-env.sh
+# COPY files/agent-env.sh /etc/profile.d/agent-env.sh
+
+# RUN chmod 755 /usr/local/bin/fcnet-setup.sh /usr/local/bin/load-agent-env.sh \
+#   && chmod 644 /etc/profile.d/agent-env.sh \
+#   && mkdir -p /etc/systemd/system/local-fs.target.wants \
+#     /etc/systemd/system/sysinit.target.wants \
+#     /etc/systemd/system/multi-user.target.wants \
+#     /etc/systemd/network \
+#   && rm -f /etc/systemd/system/multi-user.target.wants/systemd-resolved.service \
+#   && rm -f /etc/systemd/system/dbus-org.freedesktop.resolve1.service \
+#   && rm -f /etc/systemd/system/sysinit.target.wants/systemd-timesyncd.service \
+#   && rm -rf /etc/systemd/system/timers.target.wants/* \
+#   && ln -sf /usr/share/systemd/tmp.mount /etc/systemd/system/local-fs.target.wants/tmp.mount \
+#   && ln -sf /etc/systemd/system/haveged-early.service /etc/systemd/system/multi-user.target.wants/haveged-early.service \
+#   && ln -sf /etc/systemd/system/fcnet.service /etc/systemd/system/sysinit.target.wants/fcnet.service \
+#   && ln -sf /etc/systemd/system/ssh.service /etc/systemd/system/multi-user.target.wants/ssh.service \
+#   && ln -sf /etc/systemd/system/var-lib-systemd.mount \
+#     /etc/systemd/system/local-fs.target.wants/var-lib-systemd.mount \
+#   && ln -sf /dev/null /etc/systemd/network/99-default.link \
+#   && mkdir -pv /var/lib/systemd /var/lib/dpkg \
+#   && rm -rf /usr/share/doc /usr/share/man /usr/share/info /usr/share/locale

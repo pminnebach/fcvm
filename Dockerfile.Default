@@ -1,0 +1,62 @@
+# ARG BASE_IMAGE
+# FROM ${BASE_IMAGE}
+
+FROM fcvm-ubuntu-2604
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    nodejs \
+    npm \
+    python3 \
+    python3-pip \
+    python3-venv \
+    wget \
+    apt-transport-https \
+    software-properties-common \
+    libatomic1 \
+  && apt-get clean \
+  && rm -rf /var/lib/apt/lists/*
+  
+# Install PowerShell 7
+# RUN . /etc/os-release \
+#   && wget -q https://packages.microsoft.com/config/ubuntu/$VERSION_ID/packages-microsoft-prod.deb \
+#   && dpkg -i packages-microsoft-prod.deb \
+#   && rm packages-microsoft-prod.deb \
+#   && apt-get update \
+#   && apt-get install -y --no-install-recommends \
+#     powershell \
+#   && apt-get clean \
+#   && rm -rf /var/lib/apt/lists/*
+
+# Install golang
+ENV GO_VERSION=1.26.5
+RUN wget -q https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz \
+  && rm -rf /usr/local/go \
+  && tar -C /usr/local -xzf go${GO_VERSION}.linux-amd64.tar.gz \
+  && rm go${GO_VERSION}.linux-amd64.tar.gz \
+  && echo 'export PATH="$PATH:/usr/local/go/bin"' >> ~/.bashrc  
+
+# Install GitHub cli
+RUN (type -p wget >/dev/null || (apt-get update && apt-get install wget -y)) \
+  && mkdir -p -m 755 /etc/apt/keyrings \
+  && out=$(mktemp) \
+  && wget -nv -O$out https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+  && cat $out | tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null \
+  && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+  && mkdir -p -m 755 /etc/apt/sources.list.d 	\
+  && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends \
+    gh \
+  && apt-get clean \
+  && rm -rf /var/lib/apt/lists/*
+
+# Install cursor cli
+RUN curl https://cursor.com/install -fsS | bash \
+  && echo 'export PATH="$PATH:$HOME/.local/bin"' >> ~/.bashrc
+
+# Install pnpm
+RUN wget -qO- https://get.pnpm.io/install.sh | ENV="$HOME/.shrc" SHELL="$(which sh)" sh -
+
+# COPY files/install-docker.sh /root/scripts/install-docker.sh
+# RUN chmod 755 /root/scripts/install-docker.sh
