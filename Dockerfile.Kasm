@@ -1,0 +1,25 @@
+# ARG BASE_IMAGE
+# FROM ${BASE_IMAGE}
+
+FROM fcvm-ubuntu-2604
+
+RUN apt-get update \
+  && apt-get upgrade -y \
+  # && apt-get install -y --no-install-recommends \
+  #   nodejs \
+  #   npm \
+  #   yarnpkg \
+  #   python3 \
+  #   python3-pip \
+  #   python3-venv \
+  #   wget \
+  #   apt-transport-https \
+  #   software-properties-common \
+  #   libatomic1 \
+  && apt-get clean \
+  && rm -rf /var/lib/apt/lists/* \
+  && ln -sf /usr/bin/yarnpkg /usr/local/bin/yarn
+
+COPY files/install-docker.sh /root/scripts/install-docker.sh
+COPY files/install-kasm.sh /root/scripts/install-kasm.sh
+RUN chmod 755 /root/scripts/install-docker.sh /root/scripts/install-kasm.sh
