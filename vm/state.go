@@ -63,6 +63,24 @@ func RemoveState(stateDir, id string) error {
 	return os.RemoveAll(filepath.Join(stateDir, "vms", id))
 }
 
+func ListVMDirIDs(stateDir string) ([]string, error) {
+	dir := filepath.Join(stateDir, "vms")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var out []string
+	for _, e := range entries {
+		if e.IsDir() {
+			out = append(out, e.Name())
+		}
+	}
+	return out, nil
+}
+
 func ListStates(stateDir string) ([]State, error) {
 	dir := filepath.Join(stateDir, "vms")
 	entries, err := os.ReadDir(dir)

@@ -90,16 +90,20 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 		return nil, fmt.Errorf("copy rootfs: %w", err)
 	}
 	if err := assets.PatchExt4(rootfsCopy, key.PublicKey); err != nil {
+		_ = RemoveState(m.cfg.StateDir, id)
 		return nil, fmt.Errorf("patch rootfs: %w", err)
 	}
 	if err := assets.PatchNetwork(rootfsCopy, guestIP, tapIP); err != nil {
+		_ = RemoveState(m.cfg.StateDir, id)
 		return nil, fmt.Errorf("patch guest network: %w", err)
 	}
 	if err := m.chownForJailer(rootfsCopy); err != nil {
+		_ = RemoveState(m.cfg.StateDir, id)
 		return nil, err
 	}
 
 	if err := network.SetupTap(tapDev, tapIP, guestIP); err != nil {
+		_ = RemoveState(m.cfg.StateDir, id)
 		return nil, err
 	}
 
@@ -136,10 +140,12 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 			img := filepath.Join(vmDir, fmt.Sprintf("mount-%d.ext4", i))
 			if err := syncDirToExt4(mount.Host, img); err != nil {
 				network.TeardownTap(tapDev)
+				_ = RemoveState(m.cfg.StateDir, id)
 				return nil, err
 			}
 			if err := m.chownForJailer(img); err != nil {
 				network.TeardownTap(tapDev)
+				_ = RemoveState(m.cfg.StateDir, id)
 				return nil, err
 			}
 			blockImages = append(blockImages, img)
@@ -226,12 +232,14 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 	if err != nil {
 		network.TeardownTap(tapDev)
 		m.removeJailerTree(id)
+		_ = RemoveState(m.cfg.StateDir, id)
 		return nil, fmt.Errorf("create machine: %w", err)
 	}
 
 	if err := machine.Start(ctx); err != nil {
 		network.TeardownTap(tapDev)
 		m.removeJailerTree(id)
+		_ = RemoveState(m.cfg.StateDir, id)
 		return nil, fmt.Errorf("start machine: %w", err)
 	}
 
@@ -271,6 +279,7 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 	}
 	if err := SaveState(m.cfg.StateDir, state); err != nil {
 		_ = machine.StopVMM()
+		_ = RemoveState(m.cfg.StateDir, id)
 		return nil, err
 	}
 
@@ -307,16 +316,22 @@ func (m *Manager) Stop(id string) error {
 	if err != nil {
 		return err
 	}
-	if state.PID > 0 {
-		proc, err := os.FindProcess(state.PID)
-		if err == nil {
-			_ = proc.Signal(syscall.SIGTERM)
-			time.Sleep(2 * time.Second)
-			_ = proc.Kill()
-		}
-	}
+	m.stopVMProcess(state)
 	m.teardownState(state)
 	return RemoveState(m.cfg.StateDir, id)
+}
+
+func (m *Manager) stopVMProcess(state *State) {
+	if state.PID <= 0 {
+		return
+	}
+	proc, err := os.FindProcess(state.PID)
+	if err != nil {
+		return
+	}
+	_ = proc.Signal(syscall.SIGTERM)
+	time.Sleep(2 * time.Second)
+	_ = proc.Kill()
 }
 
 func (m *Manager) Cleanup(all bool, id string) error {
@@ -324,13 +339,20 @@ func (m *Manager) Cleanup(all bool, id string) error {
 		return err
 	}
 	if all {
-		states, err := ListStates(m.cfg.StateDir)
+		ids, err := ListVMDirIDs(m.cfg.StateDir)
 		if err != nil {
 			return err
 		}
-		for _, s := range states {
-			m.teardownState(&s)
-			_ = RemoveState(m.cfg.StateDir, s.ID)
+		for _, vmID := range ids {
+			state, err := LoadState(m.cfg.StateDir, vmID)
+			if err != nil {
+				if !errors.Is(err, os.ErrNotExist) {
+					return err
+				}
+				m.cleanupVM(vmID, nil)
+				continue
+			}
+			m.cleanupVM(vmID, state)
 		}
 		return nil
 	}
@@ -342,17 +364,22 @@ func (m *Manager) Cleanup(all bool, id string) error {
 		if !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
-		m.cleanupByID(id)
+		m.cleanupVM(id, nil)
 		return nil
 	}
-	m.teardownState(state)
-	return RemoveState(m.cfg.StateDir, id)
+	m.cleanupVM(id, state)
+	return nil
 }
 
-func (m *Manager) cleanupByID(id string) {
-	// tap name is index-based and recorded in state.json; without state we cannot derive it
-	network.TeardownNFSExportsForVM(id)
-	m.removeJailerTree(id)
+func (m *Manager) cleanupVM(id string, state *State) {
+	if state != nil {
+		m.stopVMProcess(state)
+		m.teardownState(state)
+	} else {
+		// tap name is index-based and recorded in state.json; without state we cannot derive it
+		network.TeardownNFSExportsForVM(id)
+		m.removeJailerTree(id)
+	}
 	_ = RemoveState(m.cfg.StateDir, id)
 }
 

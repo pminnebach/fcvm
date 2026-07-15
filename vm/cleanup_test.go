@@ -24,15 +24,63 @@ func TestCleanupWithoutState(t *testing.T) {
 	if err := os.MkdirAll(vmDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-
-	if err := m.Cleanup(false, "orphan"); err != nil {
+	rootfs := filepath.Join(vmDir, "rootfs.ext4")
+	if err := os.WriteFile(rootfs, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+
+	m.cleanupVM("orphan", nil)
+
 	if _, err := os.Stat(m.jailerTreeDir("orphan")); !os.IsNotExist(err) {
 		t.Fatalf("jailer tree still exists: %v", err)
 	}
+	if _, err := os.Stat(rootfs); !os.IsNotExist(err) {
+		t.Fatalf("rootfs still exists: %v", err)
+	}
 	if _, err := os.Stat(vmDir); !os.IsNotExist(err) {
 		t.Fatalf("vm dir still exists: %v", err)
+	}
+}
+
+func TestCleanupAllRemovesOrphans(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("requires root")
+	}
+
+	dir := t.TempDir()
+	cfg := config.Default()
+	cfg.StateDir = dir
+	cfg.Jailer.ChrootBaseDir = filepath.Join(dir, "jailer")
+	m := NewManager(cfg)
+
+	statedDir := filepath.Join(dir, "vms", "stated")
+	if err := os.MkdirAll(statedDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(statedDir, "rootfs.ext4"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	state := &State{ID: "stated", TapDev: "tap-fcvm0"}
+	if err := SaveState(dir, state); err != nil {
+		t.Fatal(err)
+	}
+
+	orphanDir := filepath.Join(dir, "vms", "orphan")
+	if err := os.MkdirAll(orphanDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(orphanDir, "rootfs.ext4"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := m.Cleanup(true, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(statedDir); !os.IsNotExist(err) {
+		t.Fatalf("stated vm dir still exists: %v", err)
+	}
+	if _, err := os.Stat(orphanDir); !os.IsNotExist(err) {
+		t.Fatalf("orphan vm dir still exists: %v", err)
 	}
 }
 
