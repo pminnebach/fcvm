@@ -12,8 +12,6 @@
 
 set -euo pipefail
 
-# shellcheck disable=SC2310,SC2311,SC2312
-
 DOCKER_APT_KEY="/etc/apt/keyrings/docker.asc"
 DOCKER_APT_SOURCES="/etc/apt/sources.list.d/docker.sources"
 DOCKER_PACKAGES=(

@@ -16,8 +16,6 @@
 
 set -euo pipefail
 
-# shellcheck disable=SC2310,SC2311,SC2312
-
 KASM_BASE_URL="https://kasm-static-content.s3.amazonaws.com"
 KASM_VERSION="${KASM_VERSION:-1.19.0}"
 KASM_WORK_DIR="${KASM_WORK_DIR:-/tmp}"
