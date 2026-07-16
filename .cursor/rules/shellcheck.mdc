@@ -1,0 +1,20 @@
+---
+description: Run ShellCheck on bash scripts; never use disable directives.
+globs: **/*.sh
+alwaysApply: false
+---
+
+# ShellCheck for bash scripts
+
+When creating or modifying any `*.sh` file:
+
+1. Run `shellcheck` on every changed script before finishing.
+2. Fix every finding. Do not leave ShellCheck unclean.
+3. Never add ShellCheck disable directives of any form:
+   - `# shellcheck disable=...`
+   - `# shellcheck disable`
+   - file-level or inline disable comments
+4. Non-disable directives (e.g. `# shellcheck source=...`) are allowed.
+5. If `shellcheck` is missing, say it must be installed first to continue
+6. Always run shellcheck, do not skip any checks.
+7. Fix the code (quoting, `set -euo pipefail`, correct tests, etc.) rather than restructuring only to silence warnings.
