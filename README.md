@@ -124,7 +124,7 @@ All paths below use the default state directory `~/.fcvm`. Override the root wit
 └── id_ed25519               # host SSH key for guest access
 ```
 
-- **Kernel source**: `fcvm download kernel` resolves the latest vmlinux from Firecracker CI S3 for your architecture; pin with `kernel-url` in config or `--url`.
+- **Kernel source**: `fcvm download kernel` resolves the latest vmlinux from Firecracker CI S3 for your architecture; pin with `kernel-url` in config or `--url`. For nested KVM, build a custom kernel instead — see [KERNEL.md](KERNEL.md).
 - **Rootfs build**: `fcvm build-rootfs` writes to `--output` or the `rootfs` config path. See [BUILD.md](BUILD.md) for detailed rootfs build instructions, Dockerfile requirements, and examples.
 
 ### Per-VM runtime
@@ -193,6 +193,6 @@ During rootfs conversion or block mounts, fcvm uses short-lived dirs under the s
 | Docker rootfs | `fcvm build-rootfs --dockerfile path/Dockerfile` |
 | Env injection | `--env KEY=VAL` or config `env:` (MMDS → guest) |
 | Host folder | `--mount host:guest[:ro]` (NFS, block fallback) |
-| Nested KVM | `--expose-kvm` (experimental) |
+| Nested KVM | `--expose-kvm` (experimental); needs a custom guest kernel — [KERNEL.md](KERNEL.md) |
 | Multi-VM | unique `--id` per VM |
 | Self-check | `fcvm self-check` (skips if no KVM) |
