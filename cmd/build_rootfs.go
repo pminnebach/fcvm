@@ -29,11 +29,12 @@ var buildRootfsCmd = &cobra.Command{
 		if output == "" {
 			output = c.Rootfs
 		}
+		size, _ := cmd.Flags().GetString("size")
 		key, err := guest.LoadOrCreateKey(c.SSHKey)
 		if err != nil {
 			return err
 		}
-		if err := rootfs.BuildFromDockerfile(dockerfile, tag, output, key.PublicKey); err != nil {
+		if err := rootfs.BuildFromDockerfile(dockerfile, tag, output, size, key.PublicKey); err != nil {
 			return err
 		}
 		fmt.Printf("rootfs image written to %s\n", output)
@@ -45,5 +46,6 @@ func init() {
 	buildRootfsCmd.Flags().String("dockerfile", "", "path to Dockerfile")
 	buildRootfsCmd.Flags().String("tag", "fcvm-rootfs:latest", "docker image tag")
 	buildRootfsCmd.Flags().String("output", "", "output ext4 path (default: config rootfs)")
+	buildRootfsCmd.Flags().String("size", "4G", "rootfs image size (truncate format, e.g. 4G, 512M)")
 	rootCmd.AddCommand(buildRootfsCmd)
 }
