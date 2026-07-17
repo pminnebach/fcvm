@@ -26,6 +26,12 @@ VERSION=$(git describe --tags --exact-match 2>/dev/null || git rev-parse --short
 go build -buildvcs=false -ldflags="-X 'github.com/fcvm/fcvm/cmd.version=$VERSION'" -o fcvm .
 ```
 
+# Installing fcvm
+
+```bash
+sudo install -m 755 dist/fcvm_linux_amd64_v1/fcvm /usr/local/bin/
+```
+
 See [README.md](README.md#quick-start) for run instructions after building.
 
 # Building the rootfs
