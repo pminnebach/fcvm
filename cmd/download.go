@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/fcvm/fcvm/assets"
+	"github.com/pminnebach/fcvm/assets"
 )
 
 var downloadCmd = &cobra.Command{

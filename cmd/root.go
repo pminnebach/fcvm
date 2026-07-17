@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"github.com/fcvm/fcvm/config"
+	"github.com/pminnebach/fcvm/config"
 )
 
 var (

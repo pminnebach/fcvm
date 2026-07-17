@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/fcvm/fcvm/config"
+	"github.com/pminnebach/fcvm/config"
 )
 
 func TestCleanupWithoutState(t *testing.T) {

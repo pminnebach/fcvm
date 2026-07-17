@@ -1,16 +1,40 @@
+# Building fcvm
+
+Build the binary with [GoReleaser](https://goreleaser.com/getting-started/quick-start/). Version is injected at link time from the git tag (leading `v` stripped), or the short commit hash for snapshot builds. See [`.goreleaser.yaml`](.goreleaser.yaml).
+
+Install GoReleaser, then:
+
+```bash
+# Local / untagged (version = short commit)
+goreleaser build --snapshot --clean --single-target
+cp dist/fcvm_linux_*/fcvm ./fcvm
+./fcvm version
+```
+
+Tagged release (version = tag without leading `v`):
+
+```bash
+git tag -a v0.1.0 -m "v0.1.0"
+goreleaser release --clean
+# or build-only: goreleaser build --clean --single-target
+```
+
+Without GoReleaser:
+
+```bash
+VERSION=$(git describe --tags --exact-match 2>/dev/null || git rev-parse --short HEAD)
+go build -buildvcs=false -ldflags="-X 'github.com/fcvm/fcvm/cmd.version=$VERSION'" -o fcvm .
+```
+
+See [README.md](README.md#quick-start) for run instructions after building.
+
 # Building the rootfs
 
 This guide explains how to produce an ext4 rootfs image for fcvm and Firecracker microVMs.
 
 The default output path is `~/.fcvm/images/rootfs.ext4`. Override it with `--output`, the `rootfs` key in your config file ([fcvm.example.yaml](fcvm.example.yaml)), or the `FCVM_ROOTFS` environment variable.
 
-Build fcvm first:
-
-```bash
-go build -buildvcs=false -o fcvm .
-```
-
-See [README.md](README.md#build) for the full application build and quick-start guide.
+Build [fcvm](#building-fcvm) first, then continue below.
 
 ## Overview
 

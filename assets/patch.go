@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"github.com/fcvm/fcvm/rootfs"
+	"github.com/pminnebach/fcvm/rootfs"
 )
 
 func InjectHooks(rootfsDir string) error {

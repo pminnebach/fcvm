@@ -1,6 +1,6 @@
 package main
 
-import "github.com/fcvm/fcvm/cmd"
+import "github.com/pminnebach/fcvm/cmd"
 
 func main() {
 	cmd.Execute()

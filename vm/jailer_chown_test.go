@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/fcvm/fcvm/config"
+	"github.com/pminnebach/fcvm/config"
 )
 
 func TestChownForJailer(t *testing.T) {

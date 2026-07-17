@@ -5,8 +5,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/fcvm/fcvm/guest"
-	"github.com/fcvm/fcvm/rootfs"
+	"github.com/pminnebach/fcvm/guest"
+	"github.com/pminnebach/fcvm/rootfs"
 )
 
 var buildRootfsCmd = &cobra.Command{

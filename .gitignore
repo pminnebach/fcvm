@@ -27,3 +27,6 @@ fcvm-completion.bash
 # Agent logs
 .cursor/debug-*.log
 *.log
+
+# Goreleaser
+/dist/
