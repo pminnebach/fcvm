@@ -97,15 +97,16 @@ make olddefconfig
 
 Do not replace this with a generic distro `.config`. Firecracker expects an uncompressed ELF `vmlinux` with virtio, ext4, and serial console built in.
 
-### 3. Enable hypervisor KVM
+### 3. Enable hypervisor KVM and TUN
 
-Stock Firecracker configs leave virtualization off. Turn it on as **built-in** (`=y`), not modules: Firecracker guests typically have no initramfs to load `.ko` files at boot.
+Stock Firecracker configs leave virtualization and TUN off. Turn them on as **built-in** (`=y`), not modules: Firecracker guests typically have no initramfs to load `.ko` files at boot.
 
 ```bash
 scripts/config --enable CONFIG_VIRTUALIZATION
 scripts/config --enable CONFIG_KVM
 scripts/config --enable CONFIG_KVM_INTEL
 scripts/config --enable CONFIG_KVM_AMD
+scripts/config --enable CONFIG_TUN
 make olddefconfig
 ```
 
@@ -115,6 +116,7 @@ make olddefconfig
 | `CONFIG_KVM` | Core KVM (creates `/dev/kvm` when CPU features allow) |
 | `CONFIG_KVM_INTEL` / `CONFIG_KVM_AMD` | Vendor backends; enable both for a generic image, or only the one matching your host CPU |
 | `CONFIG_KVM_GUEST` | Already `y` in Firecracker configs — paravirt *as* a guest, not hosting |
+| `CONFIG_TUN` | Universal TUN/TAP driver; creates `/dev/net/tun` so L2 hypervisors can create TAP devices for guest networking |
 
 Keep existing Firecracker essentials (`CONFIG_VIRTIO_BLK`, `CONFIG_VIRTIO_NET`, `CONFIG_EXT4_FS`, serial console). If you use `make menuconfig`, do not disable them.
 
@@ -159,7 +161,7 @@ kernel: ~/.fcvm/images/vmlinux
 Inside the guest:
 
 ```bash
-sudo ./fcvm exec myvm -- sh -c 'ls -l /dev/kvm; grep -E "vmx|svm" /proc/cpuinfo | head'
+sudo ./fcvm exec myvm -- sh -c 'ls -l /dev/kvm /dev/net/tun; grep -E "vmx|svm" /proc/cpuinfo | head'
 ```
 
 Checklist:
@@ -168,9 +170,10 @@ Checklist:
 |-------|--------|
 | `/proc/cpuinfo` | `vmx` (Intel) or `svm` (AMD) |
 | `/dev/kvm` | character device present |
+| `/dev/net/tun` | character device present (TUN/TAP for L2 networking) |
 | L2 hypervisor | optional: install qemu/firecracker in the rootfs and run with KVM accel |
 
-The custom kernel only exposes `/dev/kvm`. Running L2 VMs still needs userspace tools (QEMU, Firecracker, etc.) in the guest rootfs.
+The custom kernel exposes `/dev/kvm` and `/dev/net/tun`. Running L2 VMs still needs userspace tools (QEMU, Firecracker, etc.) in the guest rootfs.
 
 ## Troubleshooting
 
@@ -178,7 +181,8 @@ The custom kernel only exposes `/dev/kvm`. Running L2 VMs still needs userspace 
 |---------|--------------|-----|
 | No `vmx`/`svm` in guest `/proc/cpuinfo` | Host nested disabled or not applied | Enable `nested=1`, reload `kvm_intel`/`kvm_amd`, confirm sysfs shows `Y`/`1` |
 | No `/dev/kvm` but CPU flags present | Guest kernel missing `CONFIG_VIRTUALIZATION`/`CONFIG_KVM`, or KVM built as module without modules in rootfs | Rebuild with options `=y`; confirm with `grep CONFIG_KVM .config` |
-| VM boots but no network / rootfs | Virtio or ext4 disabled while editing config | Re-copy Firecracker base config and re-enable only KVM options |
+| L2 boots but no network / `tuntap` fails | Guest kernel missing `CONFIG_TUN` | Rebuild with `CONFIG_TUN=y`; confirm with `grep CONFIG_TUN .config` |
+| VM boots but no network / rootfs | Virtio or ext4 disabled while editing config | Re-copy Firecracker base config and re-enable only KVM and TUN options |
 | Boot hang / no serial | Serial console options dropped | Keep Firecracker serial/`ttyS0` settings from the base config |
 | Stock `download kernel` still used | Custom `vmlinux` not at config path | Copy to `~/.fcvm/images/vmlinux` or set `kernel:` / `--kernel` |
 | Build fails with `'bool'/'false' is a keyword with '-std=c23'` | Older kernels (e.g. 6.1) vs GCC 15+ | Prefer 6.18 as in this guide, or build with `KCFLAGS='-std=gnu11'` / an older GCC |
