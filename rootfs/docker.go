@@ -7,7 +7,10 @@ import (
 	"path/filepath"
 )
 
-func BuildFromDockerfile(dockerfile, tag, outputExt4 string, sshPubKey string) error {
+func BuildFromDockerfile(dockerfile, tag, outputExt4, size, sshPubKey string) error {
+	if size == "" {
+		size = "4G"
+	}
 	dfDir := filepath.Dir(dockerfile)
 	if out, err := exec.Command("docker", "build", "-f", dockerfile, "-t", tag, dfDir).CombinedOutput(); err != nil {
 		return fmt.Errorf("docker build: %s: %w", out, err)
@@ -42,10 +45,13 @@ func BuildFromDockerfile(dockerfile, tag, outputExt4 string, sshPubKey string) e
 			return err
 		}
 	}
+	if err := os.MkdirAll(filepath.Dir(outputExt4), 0o755); err != nil {
+		return err
+	}
 	if err := os.Remove(outputExt4); err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	if out, err := exec.Command("truncate", "-s", "4G", outputExt4).CombinedOutput(); err != nil {
+	if out, err := exec.Command("truncate", "-s", size, outputExt4).CombinedOutput(); err != nil {
 		return fmt.Errorf("truncate: %s: %w", out, err)
 	}
 	if out, err := exec.Command("mkfs.ext4", "-d", root, "-F", outputExt4).CombinedOutput(); err != nil {

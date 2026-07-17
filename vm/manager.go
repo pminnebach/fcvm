@@ -18,11 +18,11 @@ import (
 	"github.com/firecracker-microvm/firecracker-go-sdk/client/models"
 	"github.com/sirupsen/logrus"
 
-	"github.com/fcvm/fcvm/assets"
-	"github.com/fcvm/fcvm/config"
-	"github.com/fcvm/fcvm/guest"
-	"github.com/fcvm/fcvm/network"
-	"github.com/fcvm/fcvm/rootfs"
+	"github.com/pminnebach/fcvm/assets"
+	"github.com/pminnebach/fcvm/config"
+	"github.com/pminnebach/fcvm/guest"
+	"github.com/pminnebach/fcvm/network"
+	"github.com/pminnebach/fcvm/rootfs"
 )
 
 type Manager struct {

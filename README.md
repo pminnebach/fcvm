@@ -51,9 +51,7 @@ Built with Go, Cobra/Viper, and `firecracker-go-sdk` (latest main pseudo-version
 
 ## Build
 
-```bash
-go build -buildvcs=false -o fcvm .
-```
+Build with GoReleaser (injects git tag or short commit into `fcvm version`). See [BUILD.md](BUILD.md#building-fcvm).
 
 ## Quick start
 

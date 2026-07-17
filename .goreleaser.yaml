@@ -1,0 +1,29 @@
+version: 2
+
+project_name: fcvm
+
+builds:
+  - id: fcvm
+    main: .
+    binary: fcvm
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+    flags:
+      - -buildvcs=false
+    ldflags:
+      - -s -w -X github.com/pminnebach/fcvm/cmd.version={{ if .IsSnapshot }}{{ .ShortCommit }}{{ else }}{{ .Version }}{{ end }}
+
+before:
+  hooks:
+    - go mod tidy
+    - go mod verify
+
+archives:
+  - formats: [tar.gz]
+
+changelog:
+  disable: true

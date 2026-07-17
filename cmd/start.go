@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/fcvm/fcvm/vm"
+	"github.com/pminnebach/fcvm/vm"
 )
 
 var startCmd = &cobra.Command{
