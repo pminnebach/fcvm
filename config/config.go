@@ -49,7 +49,6 @@ type Config struct {
 	Network        NetworkConfig     `mapstructure:"network"`
 	Env            map[string]string `mapstructure:"env"`
 	Mounts         []MountConfig     `mapstructure:"mounts"`
-	ExposeKVM      bool              `mapstructure:"expose-kvm"`
 	SSHKey         string            `mapstructure:"ssh-key"`
 	WaitTimeoutSec int               `mapstructure:"wait-timeout"`
 	Verbose        bool              `mapstructure:"verbose"`

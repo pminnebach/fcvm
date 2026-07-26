@@ -8,4 +8,4 @@
 - [ ] Sync block-fallback mount images back to the host directory on stop
 - [ ] Expose unused Firecracker jailer isolation knobs (see plans/jailer-isolation.md)
 - [ ] Implement optional CNI networking (see plans/cni-network.md)
-- [ ] Expose-kvm doesn't do anything. KVM always works in a microvm with a kvm enabled kernel.
+- [x] Expose-kvm doesn't do anything. KVM always works in a microvm with a kvm enabled kernel.

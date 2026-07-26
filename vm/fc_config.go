@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net"
 	"path/filepath"
-	"strings"
 
 	firecracker "github.com/firecracker-microvm/firecracker-go-sdk"
 	"github.com/firecracker-microvm/firecracker-go-sdk/client/models"
@@ -37,7 +36,6 @@ func buildFirecrackerConfig(cfg config.Config, in machineBuildInput) (firecracke
 	if kernelArgs == "" {
 		kernelArgs = defaultKernelArgs
 	}
-	kernelArgs = applyExposeKVMArgs(kernelArgs, cfg.ExposeKVM)
 
 	logLevel := cfg.LogLevel
 	if logLevel == "" {
@@ -131,28 +129,6 @@ func buildNetworkInterfaces(cfg config.Config, in machineBuildInput) []firecrack
 		},
 		AllowMMDS: true,
 	}}
-}
-
-func applyExposeKVMArgs(kernelArgs string, expose bool) string {
-	if !expose {
-		return kernelArgs
-	}
-	tokens := []string{"pci=on", "fcvm.kvm=1"}
-	for _, t := range tokens {
-		if !kernelArgsContainsToken(kernelArgs, t) {
-			kernelArgs += " " + t
-		}
-	}
-	return kernelArgs
-}
-
-func kernelArgsContainsToken(args, token string) bool {
-	for _, f := range strings.Fields(args) {
-		if f == token {
-			return true
-		}
-	}
-	return false
 }
 
 // jailerCreds returns the uid/gid for this VM index.

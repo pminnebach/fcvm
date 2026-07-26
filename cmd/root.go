@@ -45,7 +45,6 @@ func init() {
 	rootCmd.PersistentFlags().Int64("mem-size-mib", defaults.MemSizeMib, "memory MiB per VM")
 	rootCmd.PersistentFlags().String("ssh-key", defaults.SSHKey, "SSH private key path")
 	rootCmd.PersistentFlags().String("cni-network", defaults.Network.CNINetwork, "CNI network name (empty = static TAP)")
-	rootCmd.PersistentFlags().Bool("expose-kvm", false, "enable nested KVM in guest (experimental)")
 	rootCmd.PersistentFlags().Bool("verbose", false, "verbose logging")
 	rootCmd.PersistentFlags().Int("wait-timeout", defaults.WaitTimeoutSec, "seconds to wait for guest SSH")
 
@@ -62,7 +61,6 @@ func init() {
 	_ = viper.BindPFlag("mem-size-mib", rootCmd.PersistentFlags().Lookup("mem-size-mib"))
 	_ = viper.BindPFlag("ssh-key", rootCmd.PersistentFlags().Lookup("ssh-key"))
 	_ = viper.BindPFlag("network.cni-network", rootCmd.PersistentFlags().Lookup("cni-network"))
-	_ = viper.BindPFlag("expose-kvm", rootCmd.PersistentFlags().Lookup("expose-kvm"))
 	_ = viper.BindPFlag("verbose", rootCmd.PersistentFlags().Lookup("verbose"))
 	_ = viper.BindPFlag("wait-timeout", rootCmd.PersistentFlags().Lookup("wait-timeout"))
 

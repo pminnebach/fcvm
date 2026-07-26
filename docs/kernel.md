@@ -23,7 +23,7 @@ Stock Firecracker CI guest configs ship with `# CONFIG_VIRTUALIZATION is not set
 | Kernel | How | Use when |
 |--------|-----|----------|
 | Stock CI | `fcvm download kernel` | Normal guests |
-| Custom KVM | this guide → `kernel` path | Nested KVM / `--expose-kvm` |
+| Custom KVM | this guide → `kernel` path | Nested KVM |
 
 ## Runtime kernel args
 
@@ -33,7 +33,7 @@ Default (`kernel-args`):
 console=ttyS0 reboot=k panic=1 net.ifnames=0 biosdevname=0
 ```
 
-With `--expose-kvm` / `expose-kvm: true`, fcvm appends `pci=on fcvm.kvm=1` if missing. That only mutates the cmdline; nested virt still needs host nested mode and a guest kernel with KVM built in.
+Nested virt needs host nested mode and a guest kernel with KVM built in — no extra fcvm flag.
 
 ## Custom kernel with KVM (nested virt)
 
@@ -131,13 +131,12 @@ Or point config at another path:
 
 ```yaml
 kernel: /path/to/vmlinux
-expose-kvm: true
 ```
 
 ### Boot and verify
 
 ```bash
-sudo ./fcvm start myvm --expose-kvm
+sudo ./fcvm start myvm
 sudo ./fcvm exec myvm -- sh -c 'ls -l /dev/kvm /dev/net/tun; grep -E "vmx|svm" /proc/cpuinfo | head'
 ```
 
@@ -165,4 +164,4 @@ Running L2 VMs still needs userspace tools (QEMU, Firecracker, etc.) in the gues
 
 - [install.md](install.md) — asset download and host setup
 - [rootfs.md](rootfs.md) — guest images for nested workloads
-- [configuration.md](configuration.md) — `kernel`, `kernel-args`, `expose-kvm`
+- [configuration.md](configuration.md) — `kernel`, `kernel-args`

@@ -18,7 +18,6 @@ Global persistent flags (also bindable via config / `FCVM_*` env — see [config
 | `--mem-size-mib` | `512` | Memory MiB |
 | `--ssh-key` | `~/.fcvm/id_ed25519` | SSH private key |
 | `--cni-network` | (empty) | CNI network name; empty = static TAP |
-| `--expose-kvm` | `false` | Append nested-KVM cmdline tokens |
 | `--verbose` | `false` | Verbose logging |
 | `--wait-timeout` | `120` | Seconds to wait for guest SSH |
 

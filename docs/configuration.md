@@ -33,7 +33,6 @@ network:
   guest-ip: 172.16.0.2
 ssh-key: ~/.fcvm/id_ed25519
 wait-timeout: 120
-expose-kvm: false
 env: {}
 ```
 
@@ -61,7 +60,6 @@ env: {}
 | `log-level` | `Info` | Firecracker log level |
 | `cpu-template` | (empty) | `C3`, `T2`, `T2S`, `T2CL`, `T2A`, `V1N1`, `None` |
 | `disable-smt` | `false` | |
-| `expose-kvm` | `false` | Appends `pci=on fcvm.kvm=1`; needs custom kernel |
 | `wait-timeout` | `120` | Seconds waiting for SSH |
 | `verbose` | `false` | |
 

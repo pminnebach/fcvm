@@ -70,38 +70,6 @@ func TestBuildFirecrackerConfigDefaults(t *testing.T) {
 	}
 }
 
-func TestBuildFirecrackerConfigExposeKVM(t *testing.T) {
-	cfg := config.Default()
-	cfg.Kernel = "/tmp/vmlinux"
-	cfg.ExposeKVM = true
-
-	fc, err := buildFirecrackerConfig(cfg, machineBuildInput{
-		ID: "vm-1", RootfsPath: "/tmp/r.ext4",
-		TapDev: "t", TapIP: "172.16.0.1", GuestIP: "172.16.0.2", GuestMAC: "02:00:00:00:00:01",
-		JailerUID: 1000, JailerGID: 1000,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := defaultKernelArgs + " pci=on fcvm.kvm=1"
-	if fc.KernelArgs != want {
-		t.Fatalf("got %q want %q", fc.KernelArgs, want)
-	}
-
-	cfg.KernelArgs = defaultKernelArgs + " pci=on fcvm.kvm=1"
-	fc2, err := buildFirecrackerConfig(cfg, machineBuildInput{
-		ID: "vm-1", RootfsPath: "/tmp/r.ext4",
-		TapDev: "t", TapIP: "172.16.0.1", GuestIP: "172.16.0.2", GuestMAC: "02:00:00:00:00:01",
-		JailerUID: 1000, JailerGID: 1000,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if fc2.KernelArgs != cfg.KernelArgs {
-		t.Fatalf("double-append: got %q", fc2.KernelArgs)
-	}
-}
-
 func TestBuildFirecrackerConfigOverrides(t *testing.T) {
 	cfg := config.Default()
 	cfg.Kernel = "/tmp/vmlinux"
