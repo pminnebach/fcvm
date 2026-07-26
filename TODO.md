@@ -3,8 +3,19 @@
 ## Open
 
 - [ ] Interactive serial console via screen (see [plans/serial-console.md](plans/serial-console.md))
-- [ ] Expose unused Firecracker jailer isolation knobs (see [plans/jailer-isolation.md](plans/jailer-isolation.md))
+- [ ] Expose unused Firecracker jailer isolation knobs, including `--resource-limit` / `--new-pid-ns` via custom argv, a recommended stock cgroup recipe in examples/docs (not silently forced), and production guidance for `per-vm-uids: true` while keeping the compatibility default false (see [plans/jailer-isolation.md](plans/jailer-isolation.md))
 - [ ] Implement optional CNI networking (see [plans/cni-network.md](plans/cni-network.md))
+
+### Production host conformance
+
+Firecracker [prod-host-setup](https://github.com/firecracker-microvm/firecracker/blob/main/docs/prod-host-setup.md) gaps tracked as plans. Suggested order: IMDS DROP and path hardening first; rate limiters + serial/log next; resource-limits/cgroup recipe with jailer-isolation (above); overwatcher; host checklist anytime.
+
+- [ ] Bound serial UART + Firecracker logs for production (see [plans/serial-log-bounding.md](plans/serial-log-bounding.md); conflicts with interactive console when UART is off)
+- [ ] Validate jailer/firecracker/chroot paths are not group/world-writable (see [plans/jailer-path-hardening.md](plans/jailer-path-hardening.md))
+- [ ] Wire NIC/drive rate limiters via config (see [plans/rate-limiters.md](plans/rate-limiters.md))
+- [ ] DROP guest egress to host IMDS (`169.254.169.254`) on the FCVM chain (see [plans/imds-egress-filter.md](plans/imds-egress-filter.md))
+- [ ] Stuck-VMM overwatcher subcommand (see [plans/vmm-overwatcher.md](plans/vmm-overwatcher.md))
+- [ ] Operator host checklist doc (`docs/prod-host.md`) — guest `disable-smt` ≠ host SMT (see [plans/prod-host-checklist.md](plans/prod-host-checklist.md))
 
 ### Follow-ups from the review
 
