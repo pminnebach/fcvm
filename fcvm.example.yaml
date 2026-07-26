@@ -4,6 +4,7 @@ jailer:
   chroot-base-dir: ~/.fcvm/jailer
   uid: 1000
   gid: 1000
+  # per-vm-uids: false   # when true, uid/gid = base + VM index
   # numa-node: 0
   # daemonize: false
   # parent-cgroup: ""
@@ -21,7 +22,7 @@ mem-size-mib: 512
 network:
   tap-ip: 172.16.0.1
   guest-ip: 172.16.0.2
-  # cni-network: fcnet   # optional CNI mode (not yet implemented)
+  # cni-network: fcnet   # optional CNI mode; see NETWORK.md
 env: {}
 expose-kvm: false
 ssh-key: ~/.fcvm/id_ed25519

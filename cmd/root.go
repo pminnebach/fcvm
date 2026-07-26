@@ -44,6 +44,7 @@ func init() {
 	rootCmd.PersistentFlags().Int64("vcpu-count", defaults.VCPUCount, "vCPUs per VM")
 	rootCmd.PersistentFlags().Int64("mem-size-mib", defaults.MemSizeMib, "memory MiB per VM")
 	rootCmd.PersistentFlags().String("ssh-key", defaults.SSHKey, "SSH private key path")
+	rootCmd.PersistentFlags().String("cni-network", defaults.Network.CNINetwork, "CNI network name (empty = static TAP)")
 	rootCmd.PersistentFlags().Bool("expose-kvm", false, "enable nested KVM in guest (experimental)")
 	rootCmd.PersistentFlags().Bool("verbose", false, "verbose logging")
 	rootCmd.PersistentFlags().Int("wait-timeout", defaults.WaitTimeoutSec, "seconds to wait for guest SSH")
@@ -60,6 +61,7 @@ func init() {
 	_ = viper.BindPFlag("vcpu-count", rootCmd.PersistentFlags().Lookup("vcpu-count"))
 	_ = viper.BindPFlag("mem-size-mib", rootCmd.PersistentFlags().Lookup("mem-size-mib"))
 	_ = viper.BindPFlag("ssh-key", rootCmd.PersistentFlags().Lookup("ssh-key"))
+	_ = viper.BindPFlag("network.cni-network", rootCmd.PersistentFlags().Lookup("cni-network"))
 	_ = viper.BindPFlag("expose-kvm", rootCmd.PersistentFlags().Lookup("expose-kvm"))
 	_ = viper.BindPFlag("verbose", rootCmd.PersistentFlags().Lookup("verbose"))
 	_ = viper.BindPFlag("wait-timeout", rootCmd.PersistentFlags().Lookup("wait-timeout"))
@@ -77,6 +79,7 @@ func initConfig() {
 	viper.SetDefault("jailer.chroot-base-dir", defaults.Jailer.ChrootBaseDir)
 	viper.SetDefault("jailer.uid", defaults.Jailer.UID)
 	viper.SetDefault("jailer.gid", defaults.Jailer.GID)
+	viper.SetDefault("jailer.per-vm-uids", defaults.Jailer.PerVMUIDs)
 	viper.SetDefault("jailer.numa-node", defaults.Jailer.NumaNode)
 	viper.SetDefault("jailer.daemonize", defaults.Jailer.Daemonize)
 	viper.SetDefault("jailer.parent-cgroup", defaults.Jailer.ParentCgroup)
@@ -93,6 +96,7 @@ func initConfig() {
 	viper.SetDefault("wait-timeout", defaults.WaitTimeoutSec)
 	viper.SetDefault("network.tap-ip", defaults.Network.TapIP)
 	viper.SetDefault("network.guest-ip", defaults.Network.GuestIP)
+	viper.SetDefault("network.cni-network", defaults.Network.CNINetwork)
 
 	if cfgFile != "" {
 		viper.SetConfigFile(cfgFile)

@@ -12,6 +12,7 @@ type JailerConfig struct {
 	ChrootBaseDir string   `mapstructure:"chroot-base-dir"`
 	UID           int      `mapstructure:"uid"`
 	GID           int      `mapstructure:"gid"`
+	PerVMUIDs     bool     `mapstructure:"per-vm-uids"`
 	NumaNode      int      `mapstructure:"numa-node"`
 	Daemonize     bool     `mapstructure:"daemonize"`
 	ParentCgroup  string   `mapstructure:"parent-cgroup"`

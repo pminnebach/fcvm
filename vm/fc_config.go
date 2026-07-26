@@ -10,6 +10,7 @@ import (
 	"github.com/firecracker-microvm/firecracker-go-sdk/client/models"
 
 	"github.com/pminnebach/fcvm/config"
+	"github.com/pminnebach/fcvm/network"
 )
 
 const (
@@ -27,6 +28,8 @@ type machineBuildInput struct {
 	TapIP       string
 	GuestIP     string
 	GuestMAC    string
+	JailerUID   int
+	JailerGID   int
 }
 
 func buildFirecrackerConfig(cfg config.Config, in machineBuildInput) (firecracker.Config, error) {
@@ -41,7 +44,7 @@ func buildFirecrackerConfig(cfg config.Config, in machineBuildInput) (firecracke
 		logLevel = defaultLogLevel
 	}
 
-	uid, gid := cfg.Jailer.UID, cfg.Jailer.GID
+	uid, gid := in.JailerUID, in.JailerGID
 	numa := cfg.Jailer.NumaNode
 
 	drives := []models.Drive{{
@@ -71,31 +74,16 @@ func buildFirecrackerConfig(cfg config.Config, in machineBuildInput) (firecracke
 	}
 
 	fcCfg := firecracker.Config{
-		VMID:            in.ID,
-		SocketPath:      fcSocketName,
-		LogPath:         fcLogName,
-		LogLevel:        logLevel,
-		KernelImagePath: cfg.Kernel,
-		KernelArgs:      kernelArgs,
-		Drives:          drives,
-		MachineCfg:      machineCfg,
-		NetworkInterfaces: []firecracker.NetworkInterface{{
-			StaticConfiguration: &firecracker.StaticNetworkConfiguration{
-				MacAddress:  in.GuestMAC,
-				HostDevName: in.TapDev,
-				IPConfiguration: &firecracker.IPConfiguration{
-					IPAddr: net.IPNet{
-						IP:   net.ParseIP(in.GuestIP),
-						Mask: net.CIDRMask(30, 32),
-					},
-					Gateway:     net.ParseIP(in.TapIP),
-					Nameservers: []string{"8.8.8.8"},
-					IfName:      "eth0",
-				},
-			},
-			AllowMMDS: true,
-		}},
-		MmdsVersion: firecracker.MMDSv2,
+		VMID:              in.ID,
+		SocketPath:        fcSocketName,
+		LogPath:           fcLogName,
+		LogLevel:          logLevel,
+		KernelImagePath:   cfg.Kernel,
+		KernelArgs:        kernelArgs,
+		Drives:            drives,
+		MachineCfg:        machineCfg,
+		NetworkInterfaces: buildNetworkInterfaces(cfg, in),
+		MmdsVersion:       firecracker.MMDSv2,
 		JailerCfg: &firecracker.JailerConfig{
 			JailerBinary:  cfg.JailerBin,
 			ExecFile:      cfg.FirecrackerBin,
@@ -114,6 +102,35 @@ func buildFirecrackerConfig(cfg config.Config, in machineBuildInput) (firecracke
 		},
 	}
 	return fcCfg, nil
+}
+
+func buildNetworkInterfaces(cfg config.Config, in machineBuildInput) []firecracker.NetworkInterface {
+	if cfg.Network.CNINetwork != "" {
+		return []firecracker.NetworkInterface{{
+			CNIConfiguration: &firecracker.CNIConfiguration{
+				NetworkName: cfg.Network.CNINetwork,
+				IfName:      network.DefaultCNIIfName,
+				VMIfName:    "eth0",
+			},
+			AllowMMDS: true,
+		}}
+	}
+	return []firecracker.NetworkInterface{{
+		StaticConfiguration: &firecracker.StaticNetworkConfiguration{
+			MacAddress:  in.GuestMAC,
+			HostDevName: in.TapDev,
+			IPConfiguration: &firecracker.IPConfiguration{
+				IPAddr: net.IPNet{
+					IP:   net.ParseIP(in.GuestIP),
+					Mask: net.CIDRMask(30, 32),
+				},
+				Gateway:     net.ParseIP(in.TapIP),
+				Nameservers: []string{"8.8.8.8"},
+				IfName:      "eth0",
+			},
+		},
+		AllowMMDS: true,
+	}}
 }
 
 func applyExposeKVMArgs(kernelArgs string, expose bool) string {
@@ -136,4 +153,14 @@ func kernelArgsContainsToken(args, token string) bool {
 		}
 	}
 	return false
+}
+
+// jailerCreds returns the uid/gid for this VM index.
+func jailerCreds(cfg config.Config, index int) (uid, gid int) {
+	uid, gid = cfg.Jailer.UID, cfg.Jailer.GID
+	if cfg.Jailer.PerVMUIDs {
+		uid += index
+		gid += index
+	}
+	return uid, gid
 }

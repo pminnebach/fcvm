@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"os"
 	"testing"
 
 	"github.com/firecracker-microvm/firecracker-go-sdk/client/models"
@@ -24,6 +25,8 @@ func TestBuildFirecrackerConfigDefaults(t *testing.T) {
 		TapIP:      "172.16.0.1",
 		GuestIP:    "172.16.0.2",
 		GuestMAC:   "02:FC:00:00:00:02",
+		JailerUID:  1000,
+		JailerGID:  1000,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -75,6 +78,7 @@ func TestBuildFirecrackerConfigExposeKVM(t *testing.T) {
 	fc, err := buildFirecrackerConfig(cfg, machineBuildInput{
 		ID: "vm-1", RootfsPath: "/tmp/r.ext4",
 		TapDev: "t", TapIP: "172.16.0.1", GuestIP: "172.16.0.2", GuestMAC: "02:00:00:00:00:01",
+		JailerUID: 1000, JailerGID: 1000,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -88,6 +92,7 @@ func TestBuildFirecrackerConfigExposeKVM(t *testing.T) {
 	fc2, err := buildFirecrackerConfig(cfg, machineBuildInput{
 		ID: "vm-1", RootfsPath: "/tmp/r.ext4",
 		TapDev: "t", TapIP: "172.16.0.1", GuestIP: "172.16.0.2", GuestMAC: "02:00:00:00:00:01",
+		JailerUID: 1000, JailerGID: 1000,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -113,6 +118,7 @@ func TestBuildFirecrackerConfigOverrides(t *testing.T) {
 		ID: "vm-1", RootfsPath: "/tmp/r.ext4",
 		BlockImages: []string{"/tmp/data0.ext4"},
 		TapDev:      "t", TapIP: "172.16.0.1", GuestIP: "172.16.0.2", GuestMAC: "02:00:00:00:00:01",
+		JailerUID:   1000, JailerGID: 1000,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -143,5 +149,85 @@ func TestBuildFirecrackerConfigOverrides(t *testing.T) {
 	}
 	if len(fc.Drives) != 2 || *fc.Drives[1].DriveID != "data0" {
 		t.Fatalf("drives = %+v", fc.Drives)
+	}
+}
+
+func TestBuildFirecrackerConfigCNI(t *testing.T) {
+	cfg := config.Default()
+	cfg.Kernel = "/tmp/vmlinux"
+	cfg.Network.CNINetwork = "fcnet"
+
+	fc, err := buildFirecrackerConfig(cfg, machineBuildInput{
+		ID: "vm-1", RootfsPath: "/tmp/r.ext4",
+		JailerUID: 1000, JailerGID: 1000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	iface := fc.NetworkInterfaces[0]
+	if iface.StaticConfiguration != nil {
+		t.Fatal("expected no StaticConfiguration for CNI")
+	}
+	if iface.CNIConfiguration == nil || iface.CNIConfiguration.NetworkName != "fcnet" {
+		t.Fatalf("CNIConfiguration = %+v", iface.CNIConfiguration)
+	}
+	if iface.CNIConfiguration.IfName != "veth0" || iface.CNIConfiguration.VMIfName != "eth0" {
+		t.Fatalf("CNI ifnames = %+v", iface.CNIConfiguration)
+	}
+}
+
+func TestJailerCredsPerVM(t *testing.T) {
+	cfg := config.Default()
+	cfg.Jailer.UID = 1000
+	cfg.Jailer.GID = 1000
+	uid, gid := jailerCreds(cfg, 3)
+	if uid != 1000 || gid != 1000 {
+		t.Fatalf("shared: got %d/%d", uid, gid)
+	}
+	cfg.Jailer.PerVMUIDs = true
+	uid, gid = jailerCreds(cfg, 3)
+	if uid != 1003 || gid != 1003 {
+		t.Fatalf("per-vm: got %d/%d", uid, gid)
+	}
+
+	fc, err := buildFirecrackerConfig(cfg, machineBuildInput{
+		ID: "vm-1", RootfsPath: "/tmp/r.ext4",
+		TapDev: "t", TapIP: "172.16.0.1", GuestIP: "172.16.0.2", GuestMAC: "02:00:00:00:00:01",
+		JailerUID: uid, JailerGID: gid,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if *fc.JailerCfg.UID != 1003 || *fc.JailerCfg.GID != 1003 {
+		t.Fatalf("JailerCfg uid/gid = %d/%d", *fc.JailerCfg.UID, *fc.JailerCfg.GID)
+	}
+}
+
+func TestTeardownStateSkipsTapForCNI(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.Default()
+	cfg.StateDir = dir
+	cfg.Jailer.ChrootBaseDir = dir + "/jailer"
+	m := NewManager(cfg)
+
+	// CNI state with empty TapDev must not panic; TeardownTap is not called.
+	state := &State{
+		ID:          "cni-vm",
+		NetworkMode: NetworkModeCNI,
+		CNINetwork:  "fcnet",
+		ChrootDir:   dir + "/jailer/firecracker/cni-vm/root",
+	}
+	if err := os.MkdirAll(state.ChrootDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m.teardownState(state)
+}
+
+func TestStateIsCNI(t *testing.T) {
+	if (&State{NetworkMode: NetworkModeCNI}).IsCNI() != true {
+		t.Fatal("expected CNI")
+	}
+	if (&State{NetworkMode: NetworkModeTAP, TapDev: "x"}).IsCNI() {
+		t.Fatal("tap should not be CNI")
 	}
 }

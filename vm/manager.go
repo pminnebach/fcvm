@@ -77,11 +77,16 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 		return nil, err
 	}
 
-	// prepare rootfs copy with SSH key for this VM
+	useCNI := m.cfg.Network.CNINetwork != ""
 	index := m.nextVMIndex()
-	tapIP, guestIP := network.SubnetForIndex(m.cfg.Network.TapIP, m.cfg.Network.GuestIP, index)
-	tapDev := network.TapDevName(index)
-	guestMAC := network.GuestMAC(guestIP)
+	uid, gid := jailerCreds(m.cfg, index)
+
+	var tapIP, guestIP, tapDev, guestMAC string
+	if !useCNI {
+		tapIP, guestIP = network.SubnetForIndex(m.cfg.Network.TapIP, m.cfg.Network.GuestIP, index)
+		tapDev = network.TapDevName(index)
+		guestMAC = network.GuestMAC(guestIP)
+	}
 
 	rootfsCopy := filepath.Join(vmDir, "rootfs.ext4")
 	if err := copyFile(m.cfg.Rootfs, rootfsCopy); err != nil {
@@ -91,23 +96,42 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 		_ = RemoveState(m.cfg.StateDir, id)
 		return nil, fmt.Errorf("patch rootfs: %w", err)
 	}
-	if err := assets.PatchNetwork(rootfsCopy, guestIP, tapIP); err != nil {
-		_ = RemoveState(m.cfg.StateDir, id)
-		return nil, fmt.Errorf("patch guest network: %w", err)
+	if !useCNI {
+		if err := assets.PatchNetwork(rootfsCopy, guestIP, tapIP); err != nil {
+			_ = RemoveState(m.cfg.StateDir, id)
+			return nil, fmt.Errorf("patch guest network: %w", err)
+		}
 	}
-	if err := m.chownForJailer(rootfsCopy); err != nil {
+	if err := m.chownForJailer(rootfsCopy, uid, gid); err != nil {
 		_ = RemoveState(m.cfg.StateDir, id)
 		return nil, err
 	}
 
-	if err := network.SetupTap(tapDev, tapIP, guestIP); err != nil {
+	if !useCNI {
+		if err := network.SetupTap(tapDev, tapIP, guestIP); err != nil {
+			_ = RemoveState(m.cfg.StateDir, id)
+			return nil, err
+		}
+	}
+
+	failCleanup := func() {
+		if useCNI {
+			_ = network.TeardownCNI(ctx, id, m.cfg.Network.CNINetwork)
+		} else {
+			network.TeardownTap(tapDev)
+		}
+		m.removeJailerTree(id)
 		_ = RemoveState(m.cfg.StateDir, id)
-		return nil, err
 	}
 
 	var mountStates []MountState
 	var blockImages []string
 	mountMeta := []map[string]string{}
+	// CNI: NFS exports can be created before Start; host=gateway:path filled after IP resolve.
+	type nfsPending struct {
+		exportPath, guestPath string
+	}
+	var nfsPendingMeta []nfsPending
 
 	for i, mount := range m.cfg.Mounts {
 		guestPath := mount.Guest
@@ -128,22 +152,24 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 				mountStates = append(mountStates, MountState{
 					Host: exp.ExportPath, Guest: guestPath, Method: "nfs",
 				})
-				mountMeta = append(mountMeta, map[string]string{
-					"host": tapIP + ":" + exp.ExportPath, "guest": guestPath, "method": "nfs",
-				})
+				if useCNI {
+					nfsPendingMeta = append(nfsPendingMeta, nfsPending{exportPath: exp.ExportPath, guestPath: guestPath})
+				} else {
+					mountMeta = append(mountMeta, map[string]string{
+						"host": tapIP + ":" + exp.ExportPath, "guest": guestPath, "method": "nfs",
+					})
+				}
 				continue
 			}
 		}
 		if method == "block" {
 			img := filepath.Join(vmDir, fmt.Sprintf("mount-%d.ext4", i))
 			if err := syncDirToExt4(mount.Host, img); err != nil {
-				network.TeardownTap(tapDev)
-				_ = RemoveState(m.cfg.StateDir, id)
+				failCleanup()
 				return nil, err
 			}
-			if err := m.chownForJailer(img); err != nil {
-				network.TeardownTap(tapDev)
-				_ = RemoveState(m.cfg.StateDir, id)
+			if err := m.chownForJailer(img, uid, gid); err != nil {
+				failCleanup()
 				return nil, err
 			}
 			blockImages = append(blockImages, img)
@@ -164,27 +190,39 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 		TapIP:       tapIP,
 		GuestIP:     guestIP,
 		GuestMAC:    guestMAC,
+		JailerUID:   uid,
+		JailerGID:   gid,
 	})
 	if err != nil {
-		network.TeardownTap(tapDev)
-		m.removeJailerTree(id)
-		_ = RemoveState(m.cfg.StateDir, id)
+		failCleanup()
 		return nil, err
 	}
 
 	machine, err := firecracker.NewMachine(ctx, fcCfg, firecracker.WithLogger(m.log))
 	if err != nil {
-		network.TeardownTap(tapDev)
-		m.removeJailerTree(id)
-		_ = RemoveState(m.cfg.StateDir, id)
+		failCleanup()
 		return nil, fmt.Errorf("create machine: %w", err)
 	}
 
 	if err := machine.Start(ctx); err != nil {
-		network.TeardownTap(tapDev)
-		m.removeJailerTree(id)
-		_ = RemoveState(m.cfg.StateDir, id)
+		failCleanup()
 		return nil, fmt.Errorf("start machine: %w", err)
+	}
+
+	gateway := tapIP
+	if useCNI {
+		resolvedIP, resolvedGW, resolvedMAC, err := resolveCNIAddrs(machine)
+		if err != nil {
+			_ = machine.StopVMM()
+			failCleanup()
+			return nil, err
+		}
+		guestIP, gateway, guestMAC = resolvedIP, resolvedGW, resolvedMAC
+		for _, p := range nfsPendingMeta {
+			mountMeta = append(mountMeta, map[string]string{
+				"host": gateway + ":" + p.exportPath, "guest": p.guestPath, "method": "nfs",
+			})
+		}
 	}
 
 	meta := map[string]interface{}{
@@ -195,8 +233,7 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 			},
 		},
 	}
-	metaErr := machine.SetMetadata(ctx, meta)
-	if metaErr != nil {
+	if metaErr := machine.SetMetadata(ctx, meta); metaErr != nil {
 		m.log.Warnf("set MMDS metadata: %v", metaErr)
 	}
 
@@ -206,16 +243,27 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 	hostSocketPath := machine.Cfg.SocketPath
 	hostLogPath := filepath.Join(chrootDir, fcCfg.LogPath)
 
+	netMode := NetworkModeTAP
+	cniName := ""
+	if useCNI {
+		netMode = NetworkModeCNI
+		cniName = m.cfg.Network.CNINetwork
+	}
+
 	state := &State{
 		ID:          id,
 		PID:         pid,
 		SocketPath:  hostSocketPath,
+		NetworkMode: netMode,
+		CNINetwork:  cniName,
 		TapDev:      tapDev,
 		GuestIP:     guestIP,
 		GuestMAC:    guestMAC,
 		SSHKey:      key.PrivateKeyPath,
 		ChrootDir:   chrootDir,
 		LogPath:     hostLogPath,
+		JailerUID:   uid,
+		JailerGID:   gid,
 		StartedAt:   time.Now(),
 		Mounts:      mountStates,
 		BlockImages: blockImages,
@@ -223,7 +271,7 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 	}
 	if err := SaveState(m.cfg.StateDir, state); err != nil {
 		_ = machine.StopVMM()
-		_ = RemoveState(m.cfg.StateDir, id)
+		failCleanup()
 		return nil, err
 	}
 
@@ -245,6 +293,26 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 	go m.waitVM(ctx, machine, id)
 
 	return state, nil
+}
+
+func resolveCNIAddrs(machine *firecracker.Machine) (guestIP, gateway, mac string, err error) {
+	if len(machine.Cfg.NetworkInterfaces) == 0 {
+		return "", "", "", fmt.Errorf("CNI: no network interfaces after start")
+	}
+	iface := machine.Cfg.NetworkInterfaces[0]
+	if iface.StaticConfiguration == nil {
+		return "", "", "", fmt.Errorf("CNI: StaticConfiguration not filled after start (need tc-redirect-tap)")
+	}
+	mac = iface.StaticConfiguration.MacAddress
+	ipCfg := iface.StaticConfiguration.IPConfiguration
+	if ipCfg == nil || ipCfg.IPAddr.IP == nil {
+		return "", "", "", fmt.Errorf("CNI: no guest IP in CNI result")
+	}
+	guestIP = ipCfg.IPAddr.IP.String()
+	if ipCfg.Gateway != nil {
+		gateway = ipCfg.Gateway.String()
+	}
+	return guestIP, gateway, mac, nil
 }
 
 func (m *Manager) waitVM(ctx context.Context, machine *firecracker.Machine, id string) {
@@ -327,9 +395,9 @@ func (m *Manager) cleanupVM(id string, state *State) {
 	_ = RemoveState(m.cfg.StateDir, id)
 }
 
-func (m *Manager) chownForJailer(path string) error {
-	if err := os.Chown(path, m.cfg.Jailer.UID, m.cfg.Jailer.GID); err != nil {
-		return fmt.Errorf("chown %q for jailer uid %d: %w", path, m.cfg.Jailer.UID, err)
+func (m *Manager) chownForJailer(path string, uid, gid int) error {
+	if err := os.Chown(path, uid, gid); err != nil {
+		return fmt.Errorf("chown %q for jailer uid %d: %w", path, uid, err)
 	}
 	return nil
 }
@@ -343,7 +411,11 @@ func (m *Manager) removeJailerTree(id string) {
 }
 
 func (m *Manager) teardownState(state *State) {
-	network.TeardownTap(state.TapDev)
+	if state.IsCNI() {
+		_ = network.TeardownCNI(context.Background(), state.ID, state.CNINetwork)
+	} else if state.TapDev != "" {
+		network.TeardownTap(state.TapDev)
+	}
 	network.TeardownNFSExportsForVM(state.ID)
 	if state.ChrootDir != "" {
 		_ = os.RemoveAll(filepath.Dir(state.ChrootDir))

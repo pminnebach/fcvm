@@ -20,7 +20,7 @@ func TestChownForJailer(t *testing.T) {
 	cfg.Jailer.UID = 65534 // nobody
 	cfg.Jailer.GID = 65534
 	m := NewManager(cfg)
-	if err := m.chownForJailer(path); err != nil {
+	if err := m.chownForJailer(path, cfg.Jailer.UID, cfg.Jailer.GID); err != nil {
 		t.Fatal(err)
 	}
 	st, err := os.Stat(path)

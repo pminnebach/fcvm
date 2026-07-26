@@ -107,6 +107,9 @@ Jailer is always used. Extra jailer knobs under `jailer:`:
 | `daemonize` | `false` | Leave false until PID tracking with daemonize is verified |
 | `parent-cgroup` | empty | Parent cgroup path for the jailer |
 | `cgroup` | empty list | Entries like `memory.max=1G` → jailer `--cgroup` |
+| `per-vm-uids` | `false` | When true, uid/gid = base + VM index (see [NETWORK.md](NETWORK.md)) |
+
+Networking defaults to static TAP + MASQUERADE. Set `network.cni-network` / `--cni-network` for optional CNI mode — host setup in [NETWORK.md](NETWORK.md).
 
 ## Filesystem layout
 
