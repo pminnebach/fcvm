@@ -1,0 +1,24 @@
+---
+description: After code changes, run all tests then build to confirm nothing broke.
+alwaysApply: true
+---
+
+# Test-then-build verification
+
+After creating or modifying application source (especially `*.go`), before considering the task done:
+
+1. Run all tests first:
+
+```bash
+go test ./...
+```
+
+2. Then build the binary:
+
+```bash
+go build -buildvcs=false -o fcvm .
+```
+
+3. Both must exit 0. If either fails, fix the errors and re-run the full sequence until clean.
+4. Skip only for pure doc/rule/plan edits that cannot affect the binary or tests.
+5. Do not use GoReleaser for this check — it is for releases, not routine verification.
