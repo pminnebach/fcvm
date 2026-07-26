@@ -29,6 +29,7 @@ See [docs/install.md](docs/install.md) for host dependencies, GoReleaser builds,
 | [docs/install.md](docs/install.md) | Build, install, first-time setup |
 | [docs/cli.md](docs/cli.md) | Command and flag reference |
 | [docs/configuration.md](docs/configuration.md) | Config file, env, defaults |
+| [docs/debug.md](docs/debug.md) | Inspect VMs from the host without the CLI |
 
 Example config: [fcvm.example.yaml](fcvm.example.yaml).
 

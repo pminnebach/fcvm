@@ -118,3 +118,4 @@ Optional jailer knobs: NUMA node, daemonize, parent cgroup, and cgroup resource 
 - [rootfs.md](rootfs.md) — image build and hooks
 - [kernel.md](kernel.md) — stock and custom kernels
 - [cli.md](cli.md) — command reference
+- [debug.md](debug.md) — host-side inspection without the CLI

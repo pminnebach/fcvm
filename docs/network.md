@@ -124,3 +124,4 @@ By default all VMs share `jailer.uid` / `jailer.gid` (`1000`). Set `jailer.per-v
 - [architecture.md](architecture.md) — lifecycle and state
 - [configuration.md](configuration.md) — network config keys
 - [cli.md](cli.md) — `start` / `stop` / `cleanup`
+- [debug.md](debug.md) — inspecting TAPs, rules and exports on the host
