@@ -56,7 +56,7 @@ CNI / netns start-stop details: [cni-network.md](cni-network.md).
 - [ ] Add `numa-node`, `daemonize`, `parent-cgroup`, `cgroup` to `config.JailerConfig` + viper defaults / example yaml.
 - [ ] Wire into `JailerCfg` in `vm/manager.go` (replace hardcoded `numa := 0`).
 - [ ] Unit test: config unmarshaling; optional assert that `JailerCfg` fields are set when starting with a fake/mocked path if practical.
-- [ ] Docs: short note in [docs/NETWORK.md](../docs/NETWORK.md) or a jailer subsection in README — only what phase 1 exposes.
+- [ ] Docs: short note in [docs/network.md](../docs/network.md) or a jailer subsection in README — only what phase 1 exposes.
 
 ### Phase 2 — Netns / CNI + per-VM credentials
 

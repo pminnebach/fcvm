@@ -22,7 +22,7 @@ mem-size-mib: 512
 network:
   tap-ip: 172.16.0.1
   guest-ip: 172.16.0.2
-  # cni-network: fcnet   # optional CNI mode; see NETWORK.md
+  # cni-network: fcnet   # optional CNI mode; see docs/network.md
 env: {}
 expose-kvm: false
 ssh-key: ~/.fcvm/id_ed25519
