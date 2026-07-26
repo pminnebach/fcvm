@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,7 +14,6 @@ import (
 	"time"
 
 	firecracker "github.com/firecracker-microvm/firecracker-go-sdk"
-	"github.com/firecracker-microvm/firecracker-go-sdk/client/models"
 	"github.com/sirupsen/logrus"
 
 	"github.com/pminnebach/fcvm/assets"
@@ -158,74 +156,20 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 		}
 	}
 
-	socketPath := "firecracker.sock"
-	logPath := "firecracker.log"
-
-	kernelArgs := "console=ttyS0 reboot=k panic=1 net.ifnames=0 biosdevname=0"
-	if m.cfg.ExposeKVM {
-		kernelArgs += " pci=on fcvm.kvm=1"
-	}
-
-	uid, gid, numa := m.cfg.Jailer.UID, m.cfg.Jailer.GID, 0
-	cgroupVer := jailerCgroupVersion()
-
-	drives := []models.Drive{{
-		DriveID:      firecracker.String("rootfs"),
-		PathOnHost:   firecracker.String(rootfsCopy),
-		IsRootDevice: firecracker.Bool(true),
-		IsReadOnly:   firecracker.Bool(false),
-	}}
-	for j, img := range blockImages {
-		drives = append(drives, models.Drive{
-			DriveID:      firecracker.String(fmt.Sprintf("data%d", j)),
-			PathOnHost:   firecracker.String(img),
-			IsRootDevice: firecracker.Bool(false),
-			IsReadOnly:   firecracker.Bool(false),
-		})
-	}
-
-	fcCfg := firecracker.Config{
-		VMID:            id,
-		SocketPath:      socketPath,
-		LogPath:         logPath,
-		LogLevel:        "Info",
-		KernelImagePath: m.cfg.Kernel,
-		KernelArgs:      kernelArgs,
-		Drives:          drives,
-		MachineCfg: models.MachineConfiguration{
-			VcpuCount:  firecracker.Int64(m.cfg.VCPUCount),
-			MemSizeMib: firecracker.Int64(m.cfg.MemSizeMib),
-		},
-		NetworkInterfaces: []firecracker.NetworkInterface{{
-			StaticConfiguration: &firecracker.StaticNetworkConfiguration{
-				MacAddress:  guestMAC,
-				HostDevName: tapDev,
-				IPConfiguration: &firecracker.IPConfiguration{
-					IPAddr: net.IPNet{
-						IP:   net.ParseIP(guestIP),
-						Mask: net.CIDRMask(30, 32),
-					},
-					Gateway:     net.ParseIP(tapIP),
-					Nameservers: []string{"8.8.8.8"},
-					IfName:      "eth0",
-				},
-			},
-			AllowMMDS: true,
-		}},
-		MmdsVersion: firecracker.MMDSv2,
-		JailerCfg: &firecracker.JailerConfig{
-			JailerBinary:  m.cfg.JailerBin,
-			ExecFile:      m.cfg.FirecrackerBin,
-			ID:            id,
-			UID:           &uid,
-			GID:           &gid,
-			NumaNode:      &numa,
-			CgroupVersion: cgroupVer,
-			ChrootBaseDir: m.cfg.Jailer.ChrootBaseDir,
-			ChrootStrategy: firecracker.NewNaiveChrootStrategy(
-				filepath.Base(m.cfg.Kernel),
-			),
-		},
+	fcCfg, err := buildFirecrackerConfig(m.cfg, machineBuildInput{
+		ID:          id,
+		RootfsPath:  rootfsCopy,
+		BlockImages: blockImages,
+		TapDev:      tapDev,
+		TapIP:       tapIP,
+		GuestIP:     guestIP,
+		GuestMAC:    guestMAC,
+	})
+	if err != nil {
+		network.TeardownTap(tapDev)
+		m.removeJailerTree(id)
+		_ = RemoveState(m.cfg.StateDir, id)
+		return nil, err
 	}
 
 	machine, err := firecracker.NewMachine(ctx, fcCfg, firecracker.WithLogger(m.log))
@@ -260,7 +204,7 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 
 	chrootDir := filepath.Join(m.cfg.Jailer.ChrootBaseDir, "firecracker", id, "root")
 	hostSocketPath := machine.Cfg.SocketPath
-	hostLogPath := filepath.Join(chrootDir, logPath)
+	hostLogPath := filepath.Join(chrootDir, fcCfg.LogPath)
 
 	state := &State{
 		ID:          id,

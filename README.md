@@ -90,6 +90,24 @@ Override the config file path with `--config /path/to/fcvm.yaml`. Environment ke
 
 Set `kernel-url` (or `FCVM_KERNEL_URL`) to pin a kernel download source; otherwise `download kernel` resolves the latest vmlinux from Firecracker CI for your architecture.
 
+Optional machine knobs (also CLI flags / `FCVM_*`):
+
+| Key | Default | Notes |
+|-----|---------|-------|
+| `kernel-args` | `console=ttyS0 reboot=k panic=1 net.ifnames=0 biosdevname=0` | With `expose-kvm`, appends `pci=on fcvm.kvm=1` if missing |
+| `log-level` | `Info` | Firecracker VMM log level |
+| `cpu-template` | empty | `C3`, `T2`, `T2S`, `T2CL`, `T2A`, `V1N1`, or `None` |
+| `disable-smt` | `false` | Sets guest SMT off when true |
+
+Jailer is always used. Extra jailer knobs under `jailer:`:
+
+| Key | Default | Notes |
+|-----|---------|-------|
+| `numa-node` | `0` | NUMA node for the jailer |
+| `daemonize` | `false` | Leave false until PID tracking with daemonize is verified |
+| `parent-cgroup` | empty | Parent cgroup path for the jailer |
+| `cgroup` | empty list | Entries like `memory.max=1G` → jailer `--cgroup` |
+
 ## Filesystem layout
 
 All paths below use the default state directory `~/.fcvm`. Override the root with `--state-dir` or `FCVM_STATE_DIR`; other paths follow unless set explicitly in config.
