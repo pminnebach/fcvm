@@ -41,13 +41,25 @@ func LinkExists(dev string) bool {
 // SetupTap creates the VM's TAP device and the forwarding and NAT rules for
 // its subnet. Rules live in a dedicated FCVM chain so teardown can remove
 // exactly what was added, and so the host's own FORWARD policy is left alone.
-func SetupTap(tapDev, tapIP, guestIP, hostIface string) error {
+func SetupTap(tapDev, tapIP, guestIP, hostIface string) (err error) {
 	if LinkExists(tapDev) {
 		return fmt.Errorf("tap device %s already exists; another VM is likely using it", tapDev)
+	}
+	subnet, err := GuestSubnet(tapIP)
+	if err != nil {
+		return err
 	}
 	if err := run("ip", "tuntap", "add", "dev", tapDev, "mode", "tap"); err != nil {
 		return fmt.Errorf("create tap %s: %w", tapDev, err)
 	}
+	// Undo a partial setup: SetupTap refuses to take over an existing device,
+	// so a leftover half-configured tap would block every later start on this
+	// index.
+	defer func() {
+		if err != nil {
+			TeardownTap(tapDev, subnet, hostIface)
+		}
+	}()
 	if err := run("ip", "addr", "add", tapIP+"/30", "dev", tapDev); err != nil {
 		return fmt.Errorf("assign tap ip: %w", err)
 	}
@@ -56,10 +68,6 @@ func SetupTap(tapDev, tapIP, guestIP, hostIface string) error {
 	}
 	_ = run("sh", "-c", fmt.Sprintf("echo 1 > /proc/sys/net/ipv4/conf/%s/proxy_arp", tapDev))
 
-	subnet, err := GuestSubnet(tapIP)
-	if err != nil {
-		return err
-	}
 	if err := ensureFCVMChain(); err != nil {
 		return err
 	}

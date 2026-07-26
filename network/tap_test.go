@@ -126,6 +126,36 @@ func TestSetupTapRefusesExistingDevice(t *testing.T) {
 	}
 }
 
+// A half-configured tap must be removed: SetupTap refuses to take over an
+// existing device, so a leftover would block every later start on this index.
+func TestSetupTapCleansUpPartialSetup(t *testing.T) {
+	var calls [][]string
+	restore := SetRunner(func(name string, args ...string) error {
+		calls = append(calls, append([]string{name}, args...))
+		if name == "ip" && len(args) > 1 && args[0] == "link" && args[1] == "show" {
+			return errShouldNotExist
+		}
+		if name == "ip" && len(args) > 0 && args[0] == "addr" {
+			return errors.New("assign failed")
+		}
+		return nil
+	})
+	defer restore()
+
+	if err := SetupTap("fcvm-tap-0", "172.16.0.1", "172.16.0.2", "eth0"); err == nil {
+		t.Fatal("expected SetupTap to fail")
+	}
+	var deleted bool
+	for _, c := range calls {
+		if len(c) >= 4 && c[0] == "ip" && c[1] == "link" && c[2] == "del" && c[3] == "fcvm-tap-0" {
+			deleted = true
+		}
+	}
+	if !deleted {
+		t.Fatalf("partial tap was not removed; ran %v", calls)
+	}
+}
+
 func TestParseDefaultIface(t *testing.T) {
 	dev, err := parseDefaultIface([]byte(`[{"dst":"default","gateway":"10.0.0.1","dev":"enp0s3"}]`))
 	if err != nil {

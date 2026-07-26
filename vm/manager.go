@@ -147,6 +147,7 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 		}
 		if err := network.SetupTap(tapDev, tapIP, guestIP, hostIface); err != nil {
 			_ = RemoveState(m.cfg.StateDir, id)
+			m.releaseHostNetwork()
 			return nil, err
 		}
 	}
@@ -168,6 +169,8 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 		network.TeardownNFSExportsForVM(m.cfg.ExportRoot(), id)
 		m.removeJailerTree(id)
 		_ = RemoveState(m.cfg.StateDir, id)
+		// A failed start must not leave the host chain and ip_forward behind.
+		m.releaseHostNetwork()
 	}
 
 	// Block images must exist before the machine config is built; NFS exports
@@ -255,7 +258,12 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 	}
 
 	pid, _ := machine.PID()
-	pidStart, _ := procStartTime(pid)
+	pidStart, err := procStartTime(pid)
+	if err != nil {
+		// Without it, IsRunning falls back to PID-only liveness, which cannot
+		// tell this VM from a process that later reuses its PID.
+		m.log.Warnf("record start time for pid %d: %v; stop will rely on the PID alone", pid, err)
+	}
 
 	chrootDir := filepath.Join(m.cfg.Jailer.ChrootBaseDir, "firecracker", id, "root")
 
@@ -542,7 +550,16 @@ func (m *Manager) teardownState(state *State) {
 	if state.IsCNI() {
 		_ = network.TeardownCNI(context.Background(), state.ID, state.CNINetwork)
 	} else if state.TapDev != "" {
-		network.TeardownTap(state.TapDev, state.GuestSubnet, state.HostIface)
+		subnet, iface := state.GuestSubnet, state.HostIface
+		// State written before these fields existed still has rules to remove;
+		// recover them rather than leaving the rules behind.
+		if subnet == "" {
+			subnet, _ = network.GuestSubnet(state.GuestIP)
+		}
+		if iface == "" {
+			iface, _ = network.DefaultIface()
+		}
+		network.TeardownTap(state.TapDev, subnet, iface)
 	}
 	network.TeardownNFSExportsForVM(m.cfg.ExportRoot(), state.ID)
 	if state.ChrootDir != "" {
