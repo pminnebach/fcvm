@@ -1,6 +1,7 @@
 package network
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
@@ -8,6 +9,8 @@ import (
 	"runtime"
 	"strings"
 	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
 type NFSExport struct {
@@ -31,7 +34,10 @@ func SetupNFSExport(hostPath, vmID string, readOnly bool) (*NFSExport, error) {
 	}
 	// bind-mount host path into export dir
 	target := filepath.Join(exportDir, "share")
-	_ = exec.Command("umount", target).Run()
+	unmountShare(target)
+	if isMountPoint(target) {
+		return nil, fmt.Errorf("share still mounted at %s; refuse RemoveAll (would wipe host)", target)
+	}
 	_ = os.RemoveAll(target)
 	if err := os.Mkdir(target, 0o755); err != nil {
 		return nil, err
@@ -44,7 +50,7 @@ func SetupNFSExport(hostPath, vmID string, readOnly bool) (*NFSExport, error) {
 		return nil, err
 	}
 	line := nfsExportLine(target, uid, gid, readOnly) + "\n"
-exportsFile := "/etc/exports.d/fcvm-" + vmID + ".exports"
+	exportsFile := "/etc/exports.d/fcvm-" + vmID + ".exports"
 	if err := os.WriteFile(exportsFile, []byte(line), 0o644); err != nil {
 		return nil, fmt.Errorf("write exports (need root): %w", err)
 	}
@@ -63,9 +69,7 @@ func TeardownNFSExport(vmID string) {
 	exportsFile := "/etc/exports.d/fcvm-" + vmID + ".exports"
 	_ = os.Remove(exportsFile)
 	_ = exec.Command("exportfs", "-ra").Run()
-	exportDir := filepath.Join("/tmp", "fcvm-exports", vmID, "share")
-	_ = exec.Command("umount", exportDir).Run()
-	_ = os.RemoveAll(filepath.Join("/tmp", "fcvm-exports", vmID))
+	removeExportDir(filepath.Join("/tmp", "fcvm-exports", vmID))
 }
 
 // TeardownNFSExportsForVM removes NFS exports for vmID and vmID-N mount slots.
@@ -81,6 +85,51 @@ func TeardownNFSExportsForVM(vmID string) {
 		}
 	}
 	TeardownNFSExport(vmID)
+}
+
+func unmountShare(path string) {
+	_ = unix.Unmount(path, 0)
+	_ = unix.Unmount(path, unix.MNT_DETACH)
+}
+
+// isMountPoint reports whether path is a mount target in /proc/self/mountinfo.
+func isMountPoint(path string) bool {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	f, err := os.Open("/proc/self/mountinfo")
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		fields := strings.Fields(sc.Text())
+		// mountinfo: ... - mountpoint ...
+		if len(fields) < 5 {
+			continue
+		}
+		if fields[4] == abs {
+			return true
+		}
+	}
+	return false
+}
+
+// removeExportDir unmounts exportRoot/share and removes exportRoot only if share is not still mounted.
+// Leaving a still-mounted share in place avoids os.RemoveAll wiping the host bind source.
+func removeExportDir(exportRoot string) {
+	removeExportDirWith(exportRoot, unmountShare)
+}
+
+func removeExportDirWith(exportRoot string, unmount func(string)) {
+	share := filepath.Join(exportRoot, "share")
+	unmount(share)
+	if isMountPoint(share) {
+		return
+	}
+	_ = os.RemoveAll(exportRoot)
 }
 
 func pathOwnerIDs(path string) (uid, gid int, err error) {
