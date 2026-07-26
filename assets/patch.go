@@ -3,42 +3,33 @@ package assets
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 
+	"github.com/pminnebach/fcvm/network"
 	"github.com/pminnebach/fcvm/rootfs"
 )
 
-func InjectHooks(rootfsDir string) error {
-	return rootfs.InjectHooks(rootfsDir)
-}
-
-func PatchExt4(ext4Path, sshPubKey string) error {
+// PatchExt4 applies the guest hooks, SSH key, env and network config to a
+// rootfs image in a single loop mount.
+func PatchExt4(ext4Path string, opts rootfs.PatchOptions) error {
 	dir, err := os.MkdirTemp("", "fcvm-mount-*")
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(dir)
 	mountPoint := filepath.Join(dir, "mnt")
+	defer cleanupMountTemp(dir, mountPoint)
 	if err := os.Mkdir(mountPoint, 0o755); err != nil {
 		return err
 	}
-	return rootfs.PatchMounted(mountPoint, ext4Path, sshPubKey)
+	return rootfs.PatchMounted(mountPoint, ext4Path, opts)
 }
 
-func PatchNetwork(ext4Path, guestIP, tapIP string) error {
-	dir, err := os.MkdirTemp("", "fcvm-mount-*")
-	if err != nil {
-		return err
+// cleanupMountTemp removes the temp directory, but never while the image is
+// still mounted under it: RemoveAll would then delete the image contents.
+func cleanupMountTemp(dir, mountPoint string) {
+	if network.IsMountPoint(mountPoint) {
+		fmt.Fprintf(os.Stderr, "fcvm: %s is still mounted; leaving %s in place\n", mountPoint, dir)
+		return
 	}
-	defer os.RemoveAll(dir)
-	mountPoint := filepath.Join(dir, "mnt")
-	if err := os.Mkdir(mountPoint, 0o755); err != nil {
-		return err
-	}
-	if out, err := exec.Command("mount", "-o", "loop", ext4Path, mountPoint).CombinedOutput(); err != nil {
-		return fmt.Errorf("mount ext4: %s: %w", out, err)
-	}
-	defer exec.Command("umount", mountPoint).Run()
-	return rootfs.InjectNetwork(mountPoint, guestIP, tapIP)
+	_ = os.RemoveAll(dir)
 }

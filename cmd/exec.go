@@ -69,7 +69,7 @@ var attachCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		fmt.Printf("attaching to log %s (Ctrl+C to exit)\n", state.LogPath)
+		fmt.Fprintf(cmd.OutOrStdout(), "attaching to log %s (Ctrl+C to exit)\n", state.LogPath)
 		return guest.TailFollow(state.LogPath)
 	},
 }

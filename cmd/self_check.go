@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"os"
 
@@ -13,9 +12,10 @@ import (
 var selfCheckCmd = &cobra.Command{
 	Use:   "self-check",
 	Short: "Run integration self-check (requires KVM and root)",
+	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if _, err := os.Stat("/dev/kvm"); err != nil {
-			fmt.Println("skip: /dev/kvm not available")
+			fmt.Fprintln(cmd.OutOrStdout(), "skip: /dev/kvm not available")
 			return nil
 		}
 		if os.Geteuid() != 0 {
@@ -28,14 +28,14 @@ var selfCheckCmd = &cobra.Command{
 		mgr := vm.NewManager(c)
 		id := "selfcheck"
 		_ = mgr.Cleanup(false, id)
-		state, err := mgr.Start(context.Background(), id)
+		state, err := mgr.Start(cmd.Context(), id)
 		if err != nil {
 			return fmt.Errorf("start: %w", err)
 		}
 		if err := mgr.Stop(id); err != nil {
 			return fmt.Errorf("stop: %w", err)
 		}
-		fmt.Printf("self-check ok (VM %s at %s)\n", state.ID, state.GuestIP)
+		fmt.Fprintf(cmd.OutOrStdout(), "self-check ok (VM %s at %s)\n", state.ID, state.GuestIP)
 		return nil
 	},
 }

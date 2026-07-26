@@ -18,7 +18,7 @@ func TestBuildFirecrackerConfigDefaults(t *testing.T) {
 	cfg.VCPUCount = 2
 	cfg.MemSizeMib = 512
 
-	fc, err := buildFirecrackerConfig(cfg, machineBuildInput{
+	fc := buildFirecrackerConfig(cfg, machineBuildInput{
 		ID:         "vm-1",
 		RootfsPath: "/tmp/rootfs.ext4",
 		TapDev:     "fcvm-tap-0",
@@ -28,9 +28,6 @@ func TestBuildFirecrackerConfigDefaults(t *testing.T) {
 		JailerUID:  1000,
 		JailerGID:  1000,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	if fc.KernelArgs != defaultKernelArgs {
 		t.Fatalf("KernelArgs = %q, want %q", fc.KernelArgs, defaultKernelArgs)
@@ -82,15 +79,12 @@ func TestBuildFirecrackerConfigOverrides(t *testing.T) {
 	cfg.Jailer.ParentCgroup = "fcvm"
 	cfg.Jailer.Cgroup = []string{"memory.max=1G"}
 
-	fc, err := buildFirecrackerConfig(cfg, machineBuildInput{
+	fc := buildFirecrackerConfig(cfg, machineBuildInput{
 		ID: "vm-1", RootfsPath: "/tmp/r.ext4",
-		BlockImages: []string{"/tmp/data0.ext4"},
+		BlockDrives: []blockDrive{{Path: "/tmp/data0.ext4"}, {Path: "/tmp/data1.ext4", ReadOnly: true}},
 		TapDev:      "t", TapIP: "172.16.0.1", GuestIP: "172.16.0.2", GuestMAC: "02:00:00:00:00:01",
-		JailerUID:   1000, JailerGID: 1000,
+		JailerUID: 1000, JailerGID: 1000,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	if fc.KernelArgs != "console=ttyS0 custom=1" {
 		t.Fatalf("KernelArgs = %q", fc.KernelArgs)
 	}
@@ -115,8 +109,15 @@ func TestBuildFirecrackerConfigOverrides(t *testing.T) {
 	if len(fc.JailerCfg.CgroupArgs) != 1 || fc.JailerCfg.CgroupArgs[0] != "memory.max=1G" {
 		t.Fatalf("CgroupArgs = %v", fc.JailerCfg.CgroupArgs)
 	}
-	if len(fc.Drives) != 2 || *fc.Drives[1].DriveID != "data0" {
+	if len(fc.Drives) != 3 || *fc.Drives[1].DriveID != "data0" {
 		t.Fatalf("drives = %+v", fc.Drives)
+	}
+	// A read-only mount must not be attached writable.
+	if *fc.Drives[1].IsReadOnly {
+		t.Fatal("data0 should be writable")
+	}
+	if !*fc.Drives[2].IsReadOnly {
+		t.Fatal("data1 was requested read-only but is attached writable")
 	}
 }
 
@@ -125,13 +126,10 @@ func TestBuildFirecrackerConfigCNI(t *testing.T) {
 	cfg.Kernel = "/tmp/vmlinux"
 	cfg.Network.CNINetwork = "fcnet"
 
-	fc, err := buildFirecrackerConfig(cfg, machineBuildInput{
+	fc := buildFirecrackerConfig(cfg, machineBuildInput{
 		ID: "vm-1", RootfsPath: "/tmp/r.ext4",
 		JailerUID: 1000, JailerGID: 1000,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	iface := fc.NetworkInterfaces[0]
 	if iface.StaticConfiguration != nil {
 		t.Fatal("expected no StaticConfiguration for CNI")
@@ -158,14 +156,11 @@ func TestJailerCredsPerVM(t *testing.T) {
 		t.Fatalf("per-vm: got %d/%d", uid, gid)
 	}
 
-	fc, err := buildFirecrackerConfig(cfg, machineBuildInput{
+	fc := buildFirecrackerConfig(cfg, machineBuildInput{
 		ID: "vm-1", RootfsPath: "/tmp/r.ext4",
 		TapDev: "t", TapIP: "172.16.0.1", GuestIP: "172.16.0.2", GuestMAC: "02:00:00:00:00:01",
 		JailerUID: uid, JailerGID: gid,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	if *fc.JailerCfg.UID != 1003 || *fc.JailerCfg.GID != 1003 {
 		t.Fatalf("JailerCfg uid/gid = %d/%d", *fc.JailerCfg.UID, *fc.JailerCfg.GID)
 	}

@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 	"text/tabwriter"
 	"time"
 
@@ -14,6 +13,7 @@ import (
 var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List microVMs",
+	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		c, err := loadConfig()
 		if err != nil {
@@ -23,13 +23,19 @@ var listCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "ID\tGUEST IP\tPID\tUPTIME")
+		w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+		fmt.Fprintln(w, "ID\tSTATUS\tGUEST IP\tPID\tUPTIME")
 		for _, s := range states {
-			fmt.Fprintf(w, "%s\t%s\t%d\t%s\n", s.ID, s.GuestIP, s.PID, time.Since(s.StartedAt).Round(time.Second))
+			// A crashed VM keeps its state file, so status comes from the
+			// process, not from the file existing.
+			status, uptime := "stopped", "-"
+			if s.IsRunning() {
+				status = "running"
+				uptime = time.Since(s.StartedAt).Round(time.Second).String()
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%s\n", s.ID, status, s.GuestIP, s.PID, uptime)
 		}
-		w.Flush()
-		return nil
+		return w.Flush()
 	},
 }
 

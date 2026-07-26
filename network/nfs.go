@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -13,6 +12,10 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// exportsDir is the NFS exports drop-in directory. A variable so tests can
+// redirect it away from the host's real configuration.
+var exportsDir = "/etc/exports.d"
+
 type NFSExport struct {
 	HostPath   string
 	GuestPath  string
@@ -20,7 +23,13 @@ type NFSExport struct {
 	ReadOnly   bool
 }
 
-func SetupNFSExport(hostPath, vmID string, readOnly bool) (*NFSExport, error) {
+// SetupNFSExport bind-mounts hostPath into the VM's export root and exports it
+// to a single client. client must be the guest address: an export offered to
+// every host on the network is never what the caller wants.
+func SetupNFSExport(exportRoot, hostPath, vmID, client string, readOnly bool) (*NFSExport, error) {
+	if client == "" {
+		return nil, fmt.Errorf("nfs export for %q: no guest address to export to", hostPath)
+	}
 	abs, err := filepath.Abs(hostPath)
 	if err != nil {
 		return nil, err
@@ -28,34 +37,36 @@ func SetupNFSExport(hostPath, vmID string, readOnly bool) (*NFSExport, error) {
 	if _, err := os.Stat(abs); err != nil {
 		return nil, fmt.Errorf("host path %q: %w", abs, err)
 	}
-	exportDir := filepath.Join("/tmp", "fcvm-exports", vmID)
+	exportDir := ExportDir(exportRoot, vmID)
 	if err := os.MkdirAll(exportDir, 0o755); err != nil {
 		return nil, err
 	}
 	// bind-mount host path into export dir
 	target := filepath.Join(exportDir, "share")
 	unmountShare(target)
-	if isMountPoint(target) {
+	if IsMountPoint(target) {
 		return nil, fmt.Errorf("share still mounted at %s; refuse RemoveAll (would wipe host)", target)
 	}
 	_ = os.RemoveAll(target)
 	if err := os.Mkdir(target, 0o755); err != nil {
 		return nil, err
 	}
-	if err := exec.Command("mount", "--bind", abs, target).Run(); err != nil {
+	if err := run("mount", "--bind", abs, target); err != nil {
 		return nil, fmt.Errorf("bind mount for nfs export (need root): %w", err)
 	}
 	uid, gid, err := pathOwnerIDs(abs)
 	if err != nil {
 		return nil, err
 	}
-	line := nfsExportLine(target, uid, gid, readOnly) + "\n"
-	exportsFile := "/etc/exports.d/fcvm-" + vmID + ".exports"
-	if err := os.WriteFile(exportsFile, []byte(line), 0o644); err != nil {
+	line := nfsExportLine(target, client, uid, gid, readOnly) + "\n"
+	if err := os.MkdirAll(exportsDir, 0o755); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(exportsFile(vmID), []byte(line), 0o644); err != nil {
 		return nil, fmt.Errorf("write exports (need root): %w", err)
 	}
-	if out, err := exec.Command("exportfs", "-ra").CombinedOutput(); err != nil {
-		return nil, fmt.Errorf("exportfs: %s: %w", strings.TrimSpace(string(out)), err)
+	if err := run("exportfs", "-ra"); err != nil {
+		return nil, fmt.Errorf("exportfs: %w", err)
 	}
 	return &NFSExport{
 		HostPath:   abs,
@@ -65,26 +76,38 @@ func SetupNFSExport(hostPath, vmID string, readOnly bool) (*NFSExport, error) {
 	}, nil
 }
 
-func TeardownNFSExport(vmID string) {
-	exportsFile := "/etc/exports.d/fcvm-" + vmID + ".exports"
-	_ = os.Remove(exportsFile)
-	_ = exec.Command("exportfs", "-ra").Run()
-	removeExportDir(filepath.Join("/tmp", "fcvm-exports", vmID))
+// ExportDir is the staging directory for one VM's exports. It lives under the
+// state directory, which is root-owned, rather than under world-writable /tmp.
+func ExportDir(exportRoot, vmID string) string {
+	return filepath.Join(exportRoot, vmID)
+}
+
+func exportsFile(vmID string) string {
+	return filepath.Join(exportsDir, "fcvm-"+vmID+".exports")
+}
+
+func TeardownNFSExport(exportRoot, vmID string) {
+	_ = os.Remove(exportsFile(vmID))
+	_ = run("exportfs", "-ra")
+	removeExportDir(ExportDir(exportRoot, vmID))
 }
 
 // TeardownNFSExportsForVM removes NFS exports for vmID and vmID-N mount slots.
-func TeardownNFSExportsForVM(vmID string) {
-	parent := filepath.Join("/tmp", "fcvm-exports")
-	entries, err := os.ReadDir(parent)
+func TeardownNFSExportsForVM(exportRoot, vmID string) {
+	matched := false
+	entries, err := os.ReadDir(exportRoot)
 	if err == nil {
 		for _, e := range entries {
 			name := e.Name()
 			if name == vmID || strings.HasPrefix(name, vmID+"-") {
-				TeardownNFSExport(name)
+				TeardownNFSExport(exportRoot, name)
+				matched = matched || name == vmID
 			}
 		}
 	}
-	TeardownNFSExport(vmID)
+	if !matched {
+		TeardownNFSExport(exportRoot, vmID)
+	}
 }
 
 func unmountShare(path string) {
@@ -92,8 +115,10 @@ func unmountShare(path string) {
 	_ = unix.Unmount(path, unix.MNT_DETACH)
 }
 
-// isMountPoint reports whether path is a mount target in /proc/self/mountinfo.
-func isMountPoint(path string) bool {
+// IsMountPoint reports whether path is a mount target in /proc/self/mountinfo.
+// Callers about to os.RemoveAll a directory that may hold a bind mount must
+// check this first, or the removal recurses into the mount source.
+func IsMountPoint(path string) bool {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return false
@@ -126,7 +151,7 @@ func removeExportDir(exportRoot string) {
 func removeExportDirWith(exportRoot string, unmount func(string)) {
 	share := filepath.Join(exportRoot, "share")
 	unmount(share)
-	if isMountPoint(share) {
+	if IsMountPoint(share) {
 		return
 	}
 	_ = os.RemoveAll(exportRoot)
@@ -144,13 +169,13 @@ func pathOwnerIDs(path string) (uid, gid int, err error) {
 	return int(st.Uid), int(st.Gid), nil
 }
 
-func nfsExportLine(target string, uid, gid int, readOnly bool) string {
+func nfsExportLine(target, client string, uid, gid int, readOnly bool) string {
 	rw := "rw"
 	if readOnly {
 		rw = "ro"
 	}
 	if runtime.GOOS == "darwin" {
-		return fmt.Sprintf("%s -alldirs -mapall=%d -network 172.16.0.0 -mask 255.255.0.0", target, uid)
+		return fmt.Sprintf("%s -alldirs -mapall=%d -network %s -mask 255.255.255.255", target, uid, client)
 	}
-	return fmt.Sprintf("%s *(%s,sync,no_subtree_check,all_squash,anonuid=%d,anongid=%d)", target, rw, uid, gid)
+	return fmt.Sprintf("%s %s(%s,sync,no_subtree_check,all_squash,anonuid=%d,anongid=%d)", target, client, rw, uid, gid)
 }

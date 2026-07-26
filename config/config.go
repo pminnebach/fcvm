@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -20,16 +21,37 @@ type JailerConfig struct {
 }
 
 type NetworkConfig struct {
-	CNINetwork string `mapstructure:"cni-network"`
-	TapIP      string `mapstructure:"tap-ip"`
-	GuestIP    string `mapstructure:"guest-ip"`
+	CNINetwork  string   `mapstructure:"cni-network"`
+	TapIP       string   `mapstructure:"tap-ip"`
+	GuestIP     string   `mapstructure:"guest-ip"`
+	Nameservers []string `mapstructure:"nameservers"`
 }
+
+// Mount methods. "auto" resolves to NFS; it never silently degrades to a
+// block-device copy, because that discards guest writes.
+const (
+	MountAuto  = "auto"
+	MountNFS   = "nfs"
+	MountBlock = "block"
+)
 
 type MountConfig struct {
 	Host   string `mapstructure:"host"`
 	Guest  string `mapstructure:"guest"`
-	Mode   string `mapstructure:"mode"` // ro, rw
+	Mode   string `mapstructure:"mode"`   // ro, rw
 	Method string `mapstructure:"method"` // auto, nfs, block
+	Size   string `mapstructure:"size"`   // block only; empty sizes from the source tree
+}
+
+// ReadOnly reports whether the mount was requested read-only.
+func (m MountConfig) ReadOnly() bool { return m.Mode == "ro" }
+
+// ResolvedMethod returns the concrete method for this mount.
+func (m MountConfig) ResolvedMethod() string {
+	if m.Method == "" || m.Method == MountAuto {
+		return MountNFS
+	}
+	return m.Method
 }
 
 type Config struct {
@@ -51,8 +73,8 @@ type Config struct {
 	Mounts         []MountConfig     `mapstructure:"mounts"`
 	SSHKey         string            `mapstructure:"ssh-key"`
 	WaitTimeoutSec int               `mapstructure:"wait-timeout"`
+	StopTimeoutSec int               `mapstructure:"stop-timeout"`
 	Verbose        bool              `mapstructure:"verbose"`
-	VMID           string            `mapstructure:"-"`
 }
 
 func UserHomeDir() (string, error) {
@@ -102,13 +124,42 @@ func Default() Config {
 		VCPUCount:      2,
 		MemSizeMib:     512,
 		WaitTimeoutSec: 120,
+		StopTimeoutSec: 5,
 		SSHKey:         filepath.Join(state, "id_ed25519"),
 		Network: NetworkConfig{
-			TapIP:   "172.16.0.1",
-			GuestIP: "172.16.0.2",
+			TapIP:       "172.16.0.1",
+			GuestIP:     "172.16.0.2",
+			Nameservers: HostNameservers(),
 		},
 		Env: map[string]string{},
 	}
+}
+
+// fallbackNameserver is used only when the host has no resolvers configured.
+const fallbackNameserver = "8.8.8.8"
+
+// HostNameservers returns the host's resolvers, so guests inherit the DNS the
+// operator already uses instead of a hardcoded public server.
+func HostNameservers() []string {
+	data, err := os.ReadFile("/etc/resolv.conf")
+	if err != nil {
+		return []string{fallbackNameserver}
+	}
+	var out []string
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && fields[0] == "nameserver" {
+			// A loopback resolver on the host is not reachable from the guest.
+			if ip := net.ParseIP(fields[1]); ip == nil || ip.IsLoopback() {
+				continue
+			}
+			out = append(out, fields[1])
+		}
+	}
+	if len(out) == 0 {
+		return []string{fallbackNameserver}
+	}
+	return out
 }
 
 var knownCPUTemplates = map[string]struct{}{
@@ -139,9 +190,30 @@ func (c Config) Validate() error {
 			return fmt.Errorf("cpu-template %q is not a known template", c.CPUTemplate)
 		}
 	}
+	for _, m := range c.Mounts {
+		if m.Host == "" {
+			return fmt.Errorf("mount host path is required")
+		}
+		switch m.Method {
+		case "", MountAuto, MountNFS, MountBlock:
+		default:
+			return fmt.Errorf("mount %q: unknown method %q (auto, nfs, block)", m.Host, m.Method)
+		}
+		switch m.Mode {
+		case "", "ro", "rw":
+		default:
+			return fmt.Errorf("mount %q: unknown mode %q (ro, rw)", m.Host, m.Mode)
+		}
+	}
 	return nil
 }
 
 func (c Config) VMStateDir(id string) string {
 	return filepath.Join(c.StateDir, "vms", id)
+}
+
+// ExportRoot is the staging area for NFS bind mounts. It lives under the
+// root-owned state directory rather than world-writable /tmp.
+func (c Config) ExportRoot() string {
+	return filepath.Join(c.StateDir, "exports")
 }

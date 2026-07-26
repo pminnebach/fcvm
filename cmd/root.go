@@ -1,9 +1,12 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -19,10 +22,15 @@ var (
 var rootCmd = &cobra.Command{
 	Use:   "fcvm",
 	Short: "Manage Firecracker microVM lifecycle",
+	// Runtime failures (not root, VM missing) should print one line, not the
+	// whole usage block. Cobra still prints usage for flag and argument errors.
+	SilenceUsage: true,
 }
 
 func Execute() {
-	if err := rootCmd.Execute(); err != nil {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		os.Exit(1)
 	}
 }
@@ -47,6 +55,8 @@ func init() {
 	rootCmd.PersistentFlags().String("cni-network", defaults.Network.CNINetwork, "CNI network name (empty = static TAP)")
 	rootCmd.PersistentFlags().Bool("verbose", false, "verbose logging")
 	rootCmd.PersistentFlags().Int("wait-timeout", defaults.WaitTimeoutSec, "seconds to wait for guest SSH")
+	rootCmd.PersistentFlags().Int("stop-timeout", defaults.StopTimeoutSec, "seconds to wait for a VM to exit before SIGKILL")
+	rootCmd.PersistentFlags().StringSlice("nameservers", defaults.Network.Nameservers, "guest DNS servers (default: host resolvers)")
 
 	_ = viper.BindPFlag("state-dir", rootCmd.PersistentFlags().Lookup("state-dir"))
 	_ = viper.BindPFlag("firecracker-bin", rootCmd.PersistentFlags().Lookup("firecracker-bin"))
@@ -63,6 +73,8 @@ func init() {
 	_ = viper.BindPFlag("network.cni-network", rootCmd.PersistentFlags().Lookup("cni-network"))
 	_ = viper.BindPFlag("verbose", rootCmd.PersistentFlags().Lookup("verbose"))
 	_ = viper.BindPFlag("wait-timeout", rootCmd.PersistentFlags().Lookup("wait-timeout"))
+	_ = viper.BindPFlag("stop-timeout", rootCmd.PersistentFlags().Lookup("stop-timeout"))
+	_ = viper.BindPFlag("network.nameservers", rootCmd.PersistentFlags().Lookup("nameservers"))
 
 	viper.SetEnvPrefix("FCVM")
 	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
@@ -92,9 +104,11 @@ func initConfig() {
 	viper.SetDefault("mem-size-mib", defaults.MemSizeMib)
 	viper.SetDefault("ssh-key", defaults.SSHKey)
 	viper.SetDefault("wait-timeout", defaults.WaitTimeoutSec)
+	viper.SetDefault("stop-timeout", defaults.StopTimeoutSec)
 	viper.SetDefault("network.tap-ip", defaults.Network.TapIP)
 	viper.SetDefault("network.guest-ip", defaults.Network.GuestIP)
 	viper.SetDefault("network.cni-network", defaults.Network.CNINetwork)
+	viper.SetDefault("network.nameservers", defaults.Network.Nameservers)
 
 	if cfgFile != "" {
 		viper.SetConfigFile(cfgFile)
@@ -128,17 +142,45 @@ func loadConfig() (config.Config, error) {
 	return c, nil
 }
 
+// mountFlag parses host:guest[:opt[,opt...]] where opt is ro, rw,
+// method=nfs|block|auto or size=<truncate size>. Unknown options are rejected:
+// silently treating a typo like ":readonly" as read-write would hand the guest
+// write access the user did not ask for.
 func mountFlag(s string) (config.MountConfig, error) {
-	// host:guest[:ro]
+	const format = "mount format: host:guest[:ro|rw|method=nfs|block|auto|size=N]"
 	parts := strings.Split(s, ":")
-	if len(parts) < 2 {
-		return config.MountConfig{}, fmt.Errorf("mount format: host:guest[:ro]")
+	if len(parts) < 2 || len(parts) > 3 {
+		return config.MountConfig{}, fmt.Errorf("%s", format)
 	}
-	m := config.MountConfig{Host: parts[0], Guest: parts[1], Method: "auto"}
-	if len(parts) > 2 && parts[2] == "ro" {
-		m.Mode = "ro"
-	} else {
-		m.Mode = "rw"
+	if parts[0] == "" || parts[1] == "" {
+		return config.MountConfig{}, fmt.Errorf("%s", format)
+	}
+	m := config.MountConfig{
+		Host:   parts[0],
+		Guest:  parts[1],
+		Mode:   "rw",
+		Method: config.MountAuto,
+	}
+	if len(parts) == 2 {
+		return m, nil
+	}
+	for _, opt := range strings.Split(parts[2], ",") {
+		key, value, hasValue := strings.Cut(opt, "=")
+		switch {
+		case !hasValue && (key == "ro" || key == "rw"):
+			m.Mode = key
+		case key == "method":
+			switch value {
+			case config.MountAuto, config.MountNFS, config.MountBlock:
+				m.Method = value
+			default:
+				return config.MountConfig{}, fmt.Errorf("mount %q: unknown method %q (auto, nfs, block)", s, value)
+			}
+		case key == "size" && value != "":
+			m.Size = value
+		default:
+			return config.MountConfig{}, fmt.Errorf("mount %q: unknown option %q; %s", s, opt, format)
+		}
 	}
 	return m, nil
 }

@@ -19,10 +19,16 @@ const (
 	fcLogName         = "firecracker.log"
 )
 
+// blockDrive is a data drive attached alongside the rootfs.
+type blockDrive struct {
+	Path     string
+	ReadOnly bool
+}
+
 type machineBuildInput struct {
 	ID          string
 	RootfsPath  string
-	BlockImages []string
+	BlockDrives []blockDrive
 	TapDev      string
 	TapIP       string
 	GuestIP     string
@@ -31,7 +37,7 @@ type machineBuildInput struct {
 	JailerGID   int
 }
 
-func buildFirecrackerConfig(cfg config.Config, in machineBuildInput) (firecracker.Config, error) {
+func buildFirecrackerConfig(cfg config.Config, in machineBuildInput) firecracker.Config {
 	kernelArgs := cfg.KernelArgs
 	if kernelArgs == "" {
 		kernelArgs = defaultKernelArgs
@@ -51,12 +57,12 @@ func buildFirecrackerConfig(cfg config.Config, in machineBuildInput) (firecracke
 		IsRootDevice: firecracker.Bool(true),
 		IsReadOnly:   firecracker.Bool(false),
 	}}
-	for j, img := range in.BlockImages {
+	for j, d := range in.BlockDrives {
 		drives = append(drives, models.Drive{
 			DriveID:      firecracker.String(fmt.Sprintf("data%d", j)),
-			PathOnHost:   firecracker.String(img),
+			PathOnHost:   firecracker.String(d.Path),
 			IsRootDevice: firecracker.Bool(false),
-			IsReadOnly:   firecracker.Bool(false),
+			IsReadOnly:   firecracker.Bool(d.ReadOnly),
 		})
 	}
 
@@ -99,7 +105,7 @@ func buildFirecrackerConfig(cfg config.Config, in machineBuildInput) (firecracke
 			),
 		},
 	}
-	return fcCfg, nil
+	return fcCfg
 }
 
 func buildNetworkInterfaces(cfg config.Config, in machineBuildInput) []firecracker.NetworkInterface {
@@ -123,7 +129,7 @@ func buildNetworkInterfaces(cfg config.Config, in machineBuildInput) []firecrack
 					Mask: net.CIDRMask(30, 32),
 				},
 				Gateway:     net.ParseIP(in.TapIP),
-				Nameservers: []string{"8.8.8.8"},
+				Nameservers: cfg.Network.Nameservers,
 				IfName:      "eth0",
 			},
 		},

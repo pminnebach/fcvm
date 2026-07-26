@@ -5,12 +5,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 )
 
 func BuildFromDockerfile(dockerfile, tag, outputExt4, size, sshPubKey string) error {
-	if size == "" {
-		size = "4G"
-	}
 	dfDir := filepath.Dir(dockerfile)
 	if out, err := exec.Command("docker", "build", "-f", dockerfile, "-t", tag, dfDir).CombinedOutput(); err != nil {
 		return fmt.Errorf("docker build: %s: %w", out, err)
@@ -28,7 +26,10 @@ func BuildFromDockerfile(dockerfile, tag, outputExt4, size, sshPubKey string) er
 	if err != nil {
 		return fmt.Errorf("docker create: %w", err)
 	}
-	cid := string(cidOut[:len(cidOut)-1])
+	cid := strings.TrimSpace(string(cidOut))
+	if cid == "" {
+		return fmt.Errorf("docker create returned no container id")
+	}
 	defer exec.Command("docker", "rm", cid).Run()
 	exportPath := filepath.Join(dir, "export.tar")
 	if out, err := exec.Command("docker", "export", cid, "-o", exportPath).CombinedOutput(); err != nil {
@@ -45,17 +46,11 @@ func BuildFromDockerfile(dockerfile, tag, outputExt4, size, sshPubKey string) er
 			return err
 		}
 	}
-	if err := os.MkdirAll(filepath.Dir(outputExt4), 0o755); err != nil {
-		return err
+	if size == "" {
+		size, err = SizeForDir(root)
+		if err != nil {
+			return err
+		}
 	}
-	if err := os.Remove(outputExt4); err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	if out, err := exec.Command("truncate", "-s", size, outputExt4).CombinedOutput(); err != nil {
-		return fmt.Errorf("truncate: %s: %w", out, err)
-	}
-	if out, err := exec.Command("mkfs.ext4", "-d", root, "-F", outputExt4).CombinedOutput(); err != nil {
-		return fmt.Errorf("mkfs.ext4: %s: %w", out, err)
-	}
-	return nil
+	return MakeExt4(root, outputExt4, size)
 }

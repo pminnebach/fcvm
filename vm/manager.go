@@ -2,7 +2,6 @@ package vm
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -43,6 +42,15 @@ func (m *Manager) requireRoot() error {
 	return nil
 }
 
+// pendingMount is a mount whose guest-side record is only known once the VM
+// has an address (NFS) or a drive letter (block).
+type pendingMount struct {
+	cfg       config.MountConfig
+	guestPath string
+	slot      int
+	device    string // block only
+}
+
 func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 	if err := m.requireRoot(); err != nil {
 		return nil, err
@@ -50,14 +58,26 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 	if id == "" {
 		id = "vm-" + strconv.FormatInt(time.Now().Unix(), 10)
 	}
+	if err := ValidateID(id); err != nil {
+		return nil, err
+	}
+	if err := m.cfg.Validate(); err != nil {
+		return nil, err
+	}
+
+	// Index allocation and the state write that claims it must not interleave
+	// with another start, or both VMs get the same TAP name and address.
+	unlock, err := lockState(m.cfg.StateDir)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+
 	if _, err := LoadState(m.cfg.StateDir, id); err == nil {
 		return nil, fmt.Errorf("VM %q already exists; stop it first", id)
 	}
 	m.removeJailerTree(id)
 
-	if err := m.cfg.Validate(); err != nil {
-		return nil, err
-	}
 	for _, bin := range []string{m.cfg.FirecrackerBin, m.cfg.JailerBin, m.cfg.Kernel, m.cfg.Rootfs} {
 		if _, err := os.Stat(bin); err != nil {
 			return nil, fmt.Errorf("missing %q: %w", bin, err)
@@ -78,29 +98,41 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 	}
 
 	useCNI := m.cfg.Network.CNINetwork != ""
-	index := m.nextVMIndex()
+	index, err := m.nextVMIndex()
+	if err != nil {
+		return nil, err
+	}
 	uid, gid := jailerCreds(m.cfg, index)
 
-	var tapIP, guestIP, tapDev, guestMAC string
+	var tapIP, guestIP, tapDev, guestMAC, hostIface string
 	if !useCNI {
-		tapIP, guestIP = network.SubnetForIndex(m.cfg.Network.TapIP, m.cfg.Network.GuestIP, index)
+		tapIP, guestIP, err = network.SubnetForIndex(m.cfg.Network.TapIP, m.cfg.Network.GuestIP, index)
+		if err != nil {
+			return nil, err
+		}
 		tapDev = network.TapDevName(index)
 		guestMAC = network.GuestMAC(guestIP)
+		hostIface, err = network.DefaultIface()
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	rootfsCopy := filepath.Join(vmDir, "rootfs.ext4")
 	if err := copyFile(m.cfg.Rootfs, rootfsCopy); err != nil {
 		return nil, fmt.Errorf("copy rootfs: %w", err)
 	}
-	if err := assets.PatchExt4(rootfsCopy, key.PublicKey); err != nil {
+	patchOpts := rootfs.PatchOptions{
+		SSHPubKey:     key.PublicKey,
+		Env:           m.cfg.Env,
+		Nameservers:   m.cfg.Network.Nameservers,
+		StaticNetwork: !useCNI,
+		GuestIP:       guestIP,
+		Gateway:       tapIP,
+	}
+	if err := assets.PatchExt4(rootfsCopy, patchOpts); err != nil {
 		_ = RemoveState(m.cfg.StateDir, id)
 		return nil, fmt.Errorf("patch rootfs: %w", err)
-	}
-	if !useCNI {
-		if err := assets.PatchNetwork(rootfsCopy, guestIP, tapIP); err != nil {
-			_ = RemoveState(m.cfg.StateDir, id)
-			return nil, fmt.Errorf("patch guest network: %w", err)
-		}
 	}
 	if err := m.chownForJailer(rootfsCopy, uid, gid); err != nil {
 		_ = RemoveState(m.cfg.StateDir, id)
@@ -108,7 +140,19 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 	}
 
 	if !useCNI {
-		if err := network.SetupTap(tapDev, tapIP, guestIP); err != nil {
+		if err := network.EnableIPForward(m.cfg.StateDir); err != nil {
+			_ = RemoveState(m.cfg.StateDir, id)
+			return nil, fmt.Errorf("enable ip forwarding: %w", err)
+		}
+		if err := network.SetupTap(tapDev, tapIP, guestIP, hostIface); err != nil {
+			_ = RemoveState(m.cfg.StateDir, id)
+			return nil, err
+		}
+	}
+
+	guestSubnet := ""
+	if !useCNI {
+		if guestSubnet, err = network.GuestSubnet(tapIP); err != nil {
 			_ = RemoveState(m.cfg.StateDir, id)
 			return nil, err
 		}
@@ -116,55 +160,28 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 
 	failCleanup := func() {
 		if useCNI {
-			_ = network.TeardownCNI(ctx, id, m.cfg.Network.CNINetwork)
+			_ = network.TeardownCNI(context.Background(), id, m.cfg.Network.CNINetwork)
 		} else {
-			network.TeardownTap(tapDev)
+			network.TeardownTap(tapDev, guestSubnet, hostIface)
 		}
+		network.TeardownNFSExportsForVM(m.cfg.ExportRoot(), id)
 		m.removeJailerTree(id)
 		_ = RemoveState(m.cfg.StateDir, id)
 	}
 
-	var mountStates []MountState
-	var blockImages []string
-	mountMeta := []map[string]string{}
-	// CNI: NFS exports can be created before Start; host=gateway:path filled after IP resolve.
-	type nfsPending struct {
-		exportPath, guestPath string
-	}
-	var nfsPendingMeta []nfsPending
-
+	// Block images must exist before the machine config is built; NFS exports
+	// wait until the guest address is known so they can be scoped to it.
+	var blockDrives []blockDrive
+	var pending []pendingMount
 	for i, mount := range m.cfg.Mounts {
 		guestPath := mount.Guest
 		if guestPath == "" {
 			guestPath = "/mnt/" + filepath.Base(mount.Host)
 		}
-		method := mount.Method
-		if method == "" || method == "auto" {
-			method = "nfs"
-		}
-		if method == "nfs" {
-			exportID := id + "-" + strconv.Itoa(i)
-			exp, err := network.SetupNFSExport(mount.Host, exportID, mount.Mode == "ro")
-			if err != nil {
-				m.log.Warnf("NFS unavailable for %s: %v; falling back to block device", mount.Host, err)
-				method = "block"
-			} else {
-				mountStates = append(mountStates, MountState{
-					Host: exp.ExportPath, Guest: guestPath, Method: "nfs",
-				})
-				if useCNI {
-					nfsPendingMeta = append(nfsPendingMeta, nfsPending{exportPath: exp.ExportPath, guestPath: guestPath})
-				} else {
-					mountMeta = append(mountMeta, map[string]string{
-						"host": tapIP + ":" + exp.ExportPath, "guest": guestPath, "method": "nfs",
-					})
-				}
-				continue
-			}
-		}
-		if method == "block" {
+		p := pendingMount{cfg: mount, guestPath: guestPath, slot: i}
+		if mount.ResolvedMethod() == config.MountBlock {
 			img := filepath.Join(vmDir, fmt.Sprintf("mount-%d.ext4", i))
-			if err := syncDirToExt4(mount.Host, img); err != nil {
+			if err := syncDirToExt4(mount.Host, img, mount.Size); err != nil {
 				failCleanup()
 				return nil, err
 			}
@@ -172,20 +189,16 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 				failCleanup()
 				return nil, err
 			}
-			blockImages = append(blockImages, img)
-			mountStates = append(mountStates, MountState{
-				Host: mount.Host, Guest: guestPath, Method: "block", Device: img,
-			})
-			mountMeta = append(mountMeta, map[string]string{
-				"host": mount.Host, "guest": guestPath, "method": "block",
-			})
+			p.device = guestBlockDevice(len(blockDrives))
+			blockDrives = append(blockDrives, blockDrive{Path: img, ReadOnly: mount.ReadOnly()})
 		}
+		pending = append(pending, p)
 	}
 
-	fcCfg, err := buildFirecrackerConfig(m.cfg, machineBuildInput{
+	fcCfg := buildFirecrackerConfig(m.cfg, machineBuildInput{
 		ID:          id,
 		RootfsPath:  rootfsCopy,
-		BlockImages: blockImages,
+		BlockDrives: blockDrives,
 		TapDev:      tapDev,
 		TapIP:       tapIP,
 		GuestIP:     guestIP,
@@ -193,10 +206,6 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 		JailerUID:   uid,
 		JailerGID:   gid,
 	})
-	if err != nil {
-		failCleanup()
-		return nil, err
-	}
 
 	machine, err := firecracker.NewMachine(ctx, fcCfg, firecracker.WithLogger(m.log))
 	if err != nil {
@@ -209,27 +218,30 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 		return nil, fmt.Errorf("start machine: %w", err)
 	}
 
+	stopAndFail := func(err error) (*State, error) {
+		_ = machine.StopVMM()
+		failCleanup()
+		return nil, err
+	}
+
 	gateway := tapIP
 	if useCNI {
 		resolvedIP, resolvedGW, resolvedMAC, err := resolveCNIAddrs(machine)
 		if err != nil {
-			_ = machine.StopVMM()
-			failCleanup()
-			return nil, err
+			return stopAndFail(err)
 		}
 		guestIP, gateway, guestMAC = resolvedIP, resolvedGW, resolvedMAC
-		for _, p := range nfsPendingMeta {
-			mountMeta = append(mountMeta, map[string]string{
-				"host": gateway + ":" + p.exportPath, "guest": p.guestPath, "method": "nfs",
-			})
-		}
+	}
+
+	mountStates, mountRecords, err := m.setupMounts(id, guestIP, gateway, pending)
+	if err != nil {
+		return stopAndFail(err)
 	}
 
 	meta := map[string]interface{}{
 		"latest": map[string]interface{}{
 			"meta-data": map[string]interface{}{
-				"env":    m.cfg.Env,
-				"mounts": mountMeta,
+				"env": m.cfg.Env,
 			},
 		},
 	}
@@ -238,10 +250,9 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 	}
 
 	pid, _ := machine.PID()
+	pidStart, _ := procStartTime(pid)
 
 	chrootDir := filepath.Join(m.cfg.Jailer.ChrootBaseDir, "firecracker", id, "root")
-	hostSocketPath := machine.Cfg.SocketPath
-	hostLogPath := filepath.Join(chrootDir, fcCfg.LogPath)
 
 	netMode := NetworkModeTAP
 	cniName := ""
@@ -252,47 +263,98 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 
 	state := &State{
 		ID:          id,
+		Index:       index,
 		PID:         pid,
-		SocketPath:  hostSocketPath,
+		PIDStart:    pidStart,
+		SocketPath:  machine.Cfg.SocketPath,
 		NetworkMode: netMode,
 		CNINetwork:  cniName,
 		TapDev:      tapDev,
+		HostIface:   hostIface,
+		GuestSubnet: guestSubnet,
 		GuestIP:     guestIP,
 		GuestMAC:    guestMAC,
 		SSHKey:      key.PrivateKeyPath,
 		ChrootDir:   chrootDir,
-		LogPath:     hostLogPath,
+		LogPath:     filepath.Join(chrootDir, fcCfg.LogPath),
 		JailerUID:   uid,
 		JailerGID:   gid,
 		StartedAt:   time.Now(),
 		Mounts:      mountStates,
-		BlockImages: blockImages,
 		Env:         m.cfg.Env,
 	}
 	if err := SaveState(m.cfg.StateDir, state); err != nil {
-		_ = machine.StopVMM()
-		failCleanup()
-		return nil, err
+		return stopAndFail(err)
 	}
 
 	timeout := time.Duration(m.cfg.WaitTimeoutSec) * time.Second
-	if err := guest.WaitSSH(guestIP, key.PrivateKeyPath, timeout); err != nil {
+	if err := guest.WaitSSH(ctx, guestIP, key.PrivateKeyPath, timeout); err != nil {
 		m.log.Warnf("guest ssh not ready: %v", err)
-	}
-	if len(mountMeta) > 0 {
-		if err := guest.Exec(guestIP, key.PrivateKeyPath, []string{"/usr/local/bin/fcvm-apply-mounts.sh"}); err != nil {
+	} else if len(mountRecords) > 0 {
+		// The host knows the whole mount table; push it and let the guest
+		// script consume it, rather than parsing JSON in shell.
+		table := rootfs.RenderMounts(mountRecords)
+		if err := guest.WriteFile(guestIP, key.PrivateKeyPath, "/etc/fcvm/mounts", table); err != nil {
+			m.log.Warnf("write guest mount table: %v", err)
+		} else if err := guest.Exec(guestIP, key.PrivateKeyPath, []string{"/usr/local/bin/fcvm-apply-mounts.sh"}); err != nil {
 			m.log.Warnf("apply guest mounts: %v", err)
 		}
 	}
-	if len(m.cfg.Env) > 0 {
-		if err := guest.Exec(guestIP, key.PrivateKeyPath, []string{"/usr/local/bin/fcvm-init-env"}); err != nil {
-			m.log.Warnf("inject guest env: %v", err)
-		}
-	}
 
-	go m.waitVM(ctx, machine, id)
+	go m.waitVM(context.WithoutCancel(ctx), machine, id)
 
 	return state, nil
+}
+
+// setupMounts creates NFS exports now that the guest address is known, and
+// returns the persisted mount state plus the table pushed into the guest.
+func (m *Manager) setupMounts(id, guestIP, gateway string, pending []pendingMount) ([]MountState, []rootfs.MountRecord, error) {
+	var states []MountState
+	var records []rootfs.MountRecord
+	for _, p := range pending {
+		switch p.cfg.ResolvedMethod() {
+		case config.MountBlock:
+			states = append(states, MountState{
+				Host:     p.cfg.Host,
+				Guest:    p.guestPath,
+				Method:   config.MountBlock,
+				Device:   filepath.Join(m.cfg.VMStateDir(id), fmt.Sprintf("mount-%d.ext4", p.slot)),
+				ReadOnly: p.cfg.ReadOnly(),
+			})
+			records = append(records, rootfs.MountRecord{
+				Method: config.MountBlock, Source: p.device, Guest: p.guestPath,
+			})
+		default:
+			if guestIP == "" {
+				return nil, nil, fmt.Errorf("mount %q: guest address unknown, cannot scope NFS export", p.cfg.Host)
+			}
+			exportID := id + "-" + strconv.Itoa(p.slot)
+			exp, err := network.SetupNFSExport(m.cfg.ExportRoot(), p.cfg.Host, exportID, guestIP, p.cfg.ReadOnly())
+			if err != nil {
+				return nil, nil, fmt.Errorf("mount %q over NFS: %w (use method=block to copy the directory into the VM instead)", p.cfg.Host, err)
+			}
+			server := gateway
+			if server == "" {
+				server = guestIP
+			}
+			states = append(states, MountState{
+				Host:     exp.ExportPath,
+				Guest:    p.guestPath,
+				Method:   config.MountNFS,
+				ReadOnly: p.cfg.ReadOnly(),
+			})
+			records = append(records, rootfs.MountRecord{
+				Method: config.MountNFS, Source: server + ":" + exp.ExportPath, Guest: p.guestPath,
+			})
+		}
+	}
+	return states, records, nil
+}
+
+// guestBlockDevice maps a data drive slot to its guest device node. The root
+// filesystem takes /dev/vda, so data drives start at /dev/vdb.
+func guestBlockDevice(slot int) string {
+	return "/dev/vd" + string(rune('b'+slot))
 }
 
 func resolveCNIAddrs(machine *firecracker.Machine) (guestIP, gateway, mac string, err error) {
@@ -329,21 +391,40 @@ func (m *Manager) Stop(id string) error {
 		return err
 	}
 	m.stopVMProcess(state)
+	m.syncBlockMounts(state)
 	m.teardownState(state)
-	return RemoveState(m.cfg.StateDir, id)
+	if err := RemoveState(m.cfg.StateDir, id); err != nil {
+		return err
+	}
+	m.releaseHostNetwork()
+	return nil
 }
 
+// stopVMProcess signals the VM and waits for it to go away. It never signals a
+// PID it cannot still identify as this VM: PIDs are recycled, and fcvm runs as
+// root.
 func (m *Manager) stopVMProcess(state *State) {
-	if state.PID <= 0 {
+	if !state.IsRunning() {
 		return
 	}
-	proc, err := os.FindProcess(state.PID)
-	if err != nil {
+	if err := syscall.Kill(state.PID, syscall.SIGTERM); err != nil {
 		return
 	}
-	_ = proc.Signal(syscall.SIGTERM)
-	time.Sleep(2 * time.Second)
-	_ = proc.Kill()
+	timeout := time.Duration(m.cfg.StopTimeoutSec) * time.Second
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if !state.IsRunning() {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if state.IsRunning() {
+		m.log.Warnf("VM %q did not exit within %s; sending SIGKILL", state.ID, timeout)
+		_ = syscall.Kill(state.PID, syscall.SIGKILL)
+	}
 }
 
 func (m *Manager) Cleanup(all bool, id string) error {
@@ -359,17 +440,22 @@ func (m *Manager) Cleanup(all bool, id string) error {
 			state, err := LoadState(m.cfg.StateDir, vmID)
 			if err != nil {
 				if !errors.Is(err, os.ErrNotExist) {
-					return err
+					m.log.Warnf("skip %q: %v", vmID, err)
+					continue
 				}
 				m.cleanupVM(vmID, nil)
 				continue
 			}
 			m.cleanupVM(vmID, state)
 		}
+		m.releaseHostNetwork()
 		return nil
 	}
 	if id == "" {
 		return fmt.Errorf("specify VM id or --all")
+	}
+	if err := ValidateID(id); err != nil {
+		return err
 	}
 	state, err := LoadState(m.cfg.StateDir, id)
 	if err != nil {
@@ -377,22 +463,50 @@ func (m *Manager) Cleanup(all bool, id string) error {
 			return err
 		}
 		m.cleanupVM(id, nil)
+		m.releaseHostNetwork()
 		return nil
 	}
 	m.cleanupVM(id, state)
+	m.releaseHostNetwork()
 	return nil
 }
 
 func (m *Manager) cleanupVM(id string, state *State) {
 	if state != nil {
 		m.stopVMProcess(state)
+		m.syncBlockMounts(state)
 		m.teardownState(state)
 	} else {
-		// tap name is index-based and recorded in state.json; without state we cannot derive it
-		network.TeardownNFSExportsForVM(id)
+		// Without state the tap name is unknown; exports and the jailer tree
+		// are still derivable from the id.
+		network.TeardownNFSExportsForVM(m.cfg.ExportRoot(), id)
 		m.removeJailerTree(id)
 	}
 	_ = RemoveState(m.cfg.StateDir, id)
+}
+
+// releaseHostNetwork undoes host-wide changes once the last VM is gone.
+func (m *Manager) releaseHostNetwork() {
+	states, err := ListStates(m.cfg.StateDir)
+	if err != nil || len(states) > 0 {
+		return
+	}
+	network.RemoveFCVMChain()
+	network.RestoreIPForward(m.cfg.StateDir)
+}
+
+// syncBlockMounts copies writable block-device mounts back to their host
+// directories. Without this the guest's writes are discarded when the VM's
+// state directory is removed.
+func (m *Manager) syncBlockMounts(state *State) {
+	for _, mnt := range state.Mounts {
+		if mnt.Method != config.MountBlock || mnt.ReadOnly || mnt.Device == "" || mnt.Host == "" {
+			continue
+		}
+		if err := syncExt4ToDir(mnt.Device, mnt.Host); err != nil {
+			m.log.Errorf("sync %s back to %s: %v", mnt.Device, mnt.Host, err)
+		}
+	}
 }
 
 func (m *Manager) chownForJailer(path string, uid, gid int) error {
@@ -407,6 +521,9 @@ func (m *Manager) jailerTreeDir(id string) string {
 }
 
 func (m *Manager) removeJailerTree(id string) {
+	if err := ValidateID(id); err != nil {
+		return
+	}
 	_ = os.RemoveAll(m.jailerTreeDir(id))
 }
 
@@ -414,9 +531,9 @@ func (m *Manager) teardownState(state *State) {
 	if state.IsCNI() {
 		_ = network.TeardownCNI(context.Background(), state.ID, state.CNINetwork)
 	} else if state.TapDev != "" {
-		network.TeardownTap(state.TapDev)
+		network.TeardownTap(state.TapDev, state.GuestSubnet, state.HostIface)
 	}
-	network.TeardownNFSExportsForVM(state.ID)
+	network.TeardownNFSExportsForVM(m.cfg.ExportRoot(), state.ID)
 	if state.ChrootDir != "" {
 		_ = os.RemoveAll(filepath.Dir(state.ChrootDir))
 	}
@@ -427,9 +544,20 @@ func (m *Manager) List() ([]State, error) {
 	return ListStates(m.cfg.StateDir)
 }
 
-func (m *Manager) nextVMIndex() int {
-	states, _ := ListStates(m.cfg.StateDir)
-	return len(states)
+// nextVMIndex returns the lowest index no live VM has claimed. Using the count
+// of VMs would reuse the index of any stopped VM and collide with the ones
+// still running.
+func (m *Manager) nextVMIndex() (int, error) {
+	states, err := ListStates(m.cfg.StateDir)
+	if err != nil {
+		return 0, err
+	}
+	claimed := ClaimedIndices(states)
+	for i := 0; ; i++ {
+		if !claimed[i] {
+			return i, nil
+		}
+	}
 }
 
 func copyFile(src, dst string) error {
@@ -443,49 +571,75 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	defer out.Close()
-	_, err = out.ReadFrom(in)
-	return err
+	if _, err := out.ReadFrom(in); err != nil {
+		return err
+	}
+	return out.Sync()
 }
 
-func syncDirToExt4(hostDir, img string) error {
+// syncDirToExt4 builds a block image seeded with the contents of hostDir.
+func syncDirToExt4(hostDir, img, size string) error {
+	if _, err := os.Stat(hostDir); err != nil {
+		return fmt.Errorf("mount source %q: %w", hostDir, err)
+	}
 	dir, err := os.MkdirTemp("", "fcvm-sync-*")
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(dir)
 	staging := filepath.Join(dir, "staging")
-	if out, err := exec.Command("cp", "-a", hostDir+"/.", staging).CombinedOutput(); err != nil {
-		// cp -a might fail if hostDir empty; try mkdir + rsync
-		_ = os.MkdirAll(staging, 0o755)
-		if out2, err2 := exec.Command("rsync", "-a", hostDir+"/", staging+"/").CombinedOutput(); err2 != nil {
-			return fmt.Errorf("sync dir: %s / %s: %w", out, out2, err2)
+	if err := os.MkdirAll(staging, 0o755); err != nil {
+		return err
+	}
+	if out, err := exec.Command("cp", "-a", hostDir+"/.", staging+"/").CombinedOutput(); err != nil {
+		return fmt.Errorf("copy %s: %s: %w", hostDir, strings.TrimSpace(string(out)), err)
+	}
+	if size == "" {
+		size, err = rootfs.SizeForDir(staging)
+		if err != nil {
+			return err
 		}
 	}
-	if err := rootfs.InjectHooks(staging); err != nil {
-		return err
-	}
-	if err := os.Remove(img); err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	if out, err := exec.Command("truncate", "-s", "512M", img).CombinedOutput(); err != nil {
-		return fmt.Errorf("truncate: %s: %w", out, err)
-	}
-	if out, err := exec.Command("mkfs.ext4", "-d", staging, "-F", img).CombinedOutput(); err != nil {
-		return fmt.Errorf("mkfs.ext4: %s: %w", out, err)
-	}
-	return nil
+	return rootfs.MakeExt4(staging, img, size)
 }
 
-// MetadataJSON helper for tests
-func MetadataJSON(env map[string]string, mounts []map[string]string) string {
-	b, _ := json.Marshal(map[string]interface{}{
-		"latest": map[string]interface{}{
-			"meta-data": map[string]interface{}{
-				"env": env, "mounts": mounts,
-			},
-		},
-	})
-	return string(b)
+// syncExt4ToDir mirrors a block image back onto the host directory it came
+// from. The image is unmounted before the temp dir is removed, and the removal
+// is skipped if that unmount failed, because RemoveAll over a live mount would
+// delete the user's data.
+func syncExt4ToDir(img, hostDir string) (err error) {
+	if _, statErr := os.Stat(img); statErr != nil {
+		return nil // nothing to sync back
+	}
+	dir, mkErr := os.MkdirTemp("", "fcvm-writeback-*")
+	if mkErr != nil {
+		return mkErr
+	}
+	mountPoint := filepath.Join(dir, "mnt")
+	defer func() {
+		if network.IsMountPoint(mountPoint) {
+			err = errors.Join(err, fmt.Errorf("%s still mounted; left %s in place", mountPoint, dir))
+			return
+		}
+		_ = os.RemoveAll(dir)
+	}()
+	if err := os.Mkdir(mountPoint, 0o755); err != nil {
+		return err
+	}
+	if out, mErr := exec.Command("mount", "-o", "loop", img, mountPoint).CombinedOutput(); mErr != nil {
+		return fmt.Errorf("mount %s: %s: %w", img, strings.TrimSpace(string(out)), mErr)
+	}
+	defer func() {
+		if out, uErr := exec.Command("umount", mountPoint).CombinedOutput(); uErr != nil {
+			err = errors.Join(err, fmt.Errorf("umount %s: %s: %w", mountPoint, strings.TrimSpace(string(out)), uErr))
+		}
+	}()
+	if out, cErr := exec.Command("rsync", "-a", "--delete",
+		"--exclude", "/lost+found",
+		mountPoint+"/", hostDir+"/").CombinedOutput(); cErr != nil {
+		return fmt.Errorf("rsync back to %s: %s: %w", hostDir, strings.TrimSpace(string(out)), cErr)
+	}
+	return nil
 }
 
 // jailerCgroupVersion picks cgroup v1 when legacy hierarchies are mounted, else v2.

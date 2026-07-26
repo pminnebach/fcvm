@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -39,18 +38,18 @@ var startCmd = &cobra.Command{
 		}
 
 		mgr := vm.NewManager(c)
-		state, err := mgr.Start(context.Background(), id)
+		state, err := mgr.Start(cmd.Context(), id)
 		if err != nil {
 			return err
 		}
-		fmt.Printf("started VM %q (guest %s, pid %d)\n", state.ID, state.GuestIP, state.PID)
+		fmt.Fprintf(cmd.OutOrStdout(), "started VM %q (guest %s, pid %d)\n", state.ID, state.GuestIP, state.PID)
 		return nil
 	},
 }
 
 func init() {
 	startCmd.Flags().String("id", "", "VM identifier")
-	startCmd.Flags().StringArray("mount", nil, "host:guest[:ro] mount (repeatable)")
+	startCmd.Flags().StringArray("mount", nil, "host:guest[:ro|rw|method=nfs|block|size=N] mount (repeatable)")
 	startCmd.Flags().StringToString("env", nil, "environment variables KEY=VALUE")
 	rootCmd.AddCommand(startCmd)
 }

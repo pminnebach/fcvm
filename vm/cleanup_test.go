@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/pminnebach/fcvm/config"
+	"github.com/pminnebach/fcvm/network"
 )
 
 func TestCleanupWithoutState(t *testing.T) {
@@ -44,8 +45,16 @@ func TestCleanupWithoutState(t *testing.T) {
 
 func TestCleanupAllRemovesOrphans(t *testing.T) {
 	if os.Geteuid() != 0 {
-		t.Skip("requires root")
+		t.Skip("Cleanup requires root")
 	}
+	// Cleanup shells out to ip and exportfs. Record those instead of running
+	// them, so `sudo go test ./...` does not reconfigure the host's network
+	// and NFS exports.
+	var ran [][]string
+	defer network.SetRunner(func(name string, args ...string) error {
+		ran = append(ran, append([]string{name}, args...))
+		return nil
+	})()
 
 	dir := t.TempDir()
 	cfg := config.Default()
@@ -60,7 +69,7 @@ func TestCleanupAllRemovesOrphans(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(statedDir, "rootfs.ext4"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	state := &State{ID: "stated", TapDev: "tap-fcvm0"}
+	state := &State{ID: "stated", TapDev: network.TapDevName(0), GuestSubnet: "172.16.0.0/30", HostIface: "eth0"}
 	if err := SaveState(dir, state); err != nil {
 		t.Fatal(err)
 	}
@@ -81,6 +90,16 @@ func TestCleanupAllRemovesOrphans(t *testing.T) {
 	}
 	if _, err := os.Stat(orphanDir); !os.IsNotExist(err) {
 		t.Fatalf("orphan vm dir still exists: %v", err)
+	}
+	// The TAP device recorded in state must actually be torn down.
+	var deletedTap bool
+	for _, c := range ran {
+		if len(c) >= 4 && c[0] == "ip" && c[1] == "link" && c[2] == "del" && c[3] == "fcvm-tap-0" {
+			deletedTap = true
+		}
+	}
+	if !deletedTap {
+		t.Fatalf("cleanup did not delete the recorded tap device; ran %v", ran)
 	}
 }
 

@@ -1,9 +1,9 @@
 package assets
 
 import (
+	"context"
 	"fmt"
 	"io"
-	"net/http"
 	"regexp"
 	"sort"
 	"strconv"
@@ -87,19 +87,16 @@ func latestKernelKey(prefix, arch string, keys []string) string {
 	return candidates[len(candidates)-1].key
 }
 
-func fetchS3List(prefix string) (string, error) {
+func fetchS3List(ctx context.Context, prefix string) (string, error) {
 	url := firecrackerS3 + "?list-type=2&prefix=" + prefix
 	if strings.HasSuffix(prefix, "/") {
 		url += "&delimiter=/"
 	}
-	resp, err := http.Get(url) //nolint:noctx // ponytail: simple asset fetch
+	resp, err := get(ctx, url)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("S3 list %s: HTTP %d", prefix, resp.StatusCode)
-	}
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", err
@@ -107,9 +104,9 @@ func fetchS3List(prefix string) (string, error) {
 	return string(body), nil
 }
 
-func LatestFirecrackerKernelURL() (string, error) {
+func LatestFirecrackerKernelURL(ctx context.Context) (string, error) {
 	arch := firecrackerArch()
-	xml, err := fetchS3List("firecracker-ci/")
+	xml, err := fetchS3List(ctx, "firecracker-ci/")
 	if err != nil {
 		return "", err
 	}
@@ -117,7 +114,7 @@ func LatestFirecrackerKernelURL() (string, error) {
 	if prefix == "" {
 		return "", fmt.Errorf("no firecracker-ci prefix found")
 	}
-	xml, err = fetchS3List(prefix + arch + "/vmlinux-")
+	xml, err = fetchS3List(ctx, prefix+arch+"/vmlinux-")
 	if err != nil {
 		return "", err
 	}
