@@ -58,3 +58,25 @@ func TestExpandPath(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateCPUTemplate(t *testing.T) {
+	c := Default()
+	c.CPUTemplate = "T2"
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	c.CPUTemplate = "nope"
+	if err := c.Validate(); err == nil {
+		t.Fatal("expected error for unknown cpu-template")
+	}
+}
+
+func TestDefaultMachineKnobs(t *testing.T) {
+	c := Default()
+	if c.KernelArgs == "" || c.LogLevel != "Info" {
+		t.Fatalf("defaults: kernel-args=%q log-level=%q", c.KernelArgs, c.LogLevel)
+	}
+	if c.Jailer.NumaNode != 0 || c.Jailer.Daemonize {
+		t.Fatalf("jailer defaults: numa=%d daemonize=%v", c.Jailer.NumaNode, c.Jailer.Daemonize)
+	}
+}

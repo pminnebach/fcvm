@@ -199,7 +199,7 @@ Also:
 
 ### Docs
 
-- Short note in README or [docs/BUILD.md](../docs/BUILD.md) / config section: new keys and defaults.
+- Short note in README or [docs/install.md](../docs/install.md) / [docs/configuration.md](../docs/configuration.md): new keys and defaults.
 - Update [fcvm.example.yaml](../fcvm.example.yaml) with commented examples.
 
 ### Verify

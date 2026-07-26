@@ -4,15 +4,25 @@ jailer:
   chroot-base-dir: ~/.fcvm/jailer
   uid: 1000
   gid: 1000
+  # per-vm-uids: false   # when true, uid/gid = base + VM index
+  # numa-node: 0
+  # daemonize: false
+  # parent-cgroup: ""
+  # cgroup:
+  #   - memory.max=1G
 kernel: ~/.fcvm/images/vmlinux
 # kernel-url: https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/.../x86_64/vmlinux-6.1.x
+# kernel-args: "console=ttyS0 reboot=k panic=1 net.ifnames=0 biosdevname=0"
 rootfs: ~/.fcvm/images/rootfs.ext4
+# log-level: Info
+# cpu-template: ""   # C3, T2, T2S, T2CL, T2A, V1N1, None
+# disable-smt: false
 vcpu-count: 2
 mem-size-mib: 512
 network:
   tap-ip: 172.16.0.1
   guest-ip: 172.16.0.2
+  # cni-network: fcnet   # optional CNI mode; see docs/network.md
 env: {}
-expose-kvm: false
 ssh-key: ~/.fcvm/id_ed25519
 wait-timeout: 120

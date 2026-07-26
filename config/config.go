@@ -9,9 +9,14 @@ import (
 )
 
 type JailerConfig struct {
-	ChrootBaseDir string `mapstructure:"chroot-base-dir"`
-	UID           int    `mapstructure:"uid"`
-	GID           int    `mapstructure:"gid"`
+	ChrootBaseDir string   `mapstructure:"chroot-base-dir"`
+	UID           int      `mapstructure:"uid"`
+	GID           int      `mapstructure:"gid"`
+	PerVMUIDs     bool     `mapstructure:"per-vm-uids"`
+	NumaNode      int      `mapstructure:"numa-node"`
+	Daemonize     bool     `mapstructure:"daemonize"`
+	ParentCgroup  string   `mapstructure:"parent-cgroup"`
+	Cgroup        []string `mapstructure:"cgroup"`
 }
 
 type NetworkConfig struct {
@@ -28,23 +33,26 @@ type MountConfig struct {
 }
 
 type Config struct {
-	StateDir        string            `mapstructure:"state-dir"`
-	FirecrackerBin  string            `mapstructure:"firecracker-bin"`
-	JailerBin       string            `mapstructure:"jailer-bin"`
-	Jailer          JailerConfig      `mapstructure:"jailer"`
-	Kernel          string            `mapstructure:"kernel"`
-	KernelURL       string            `mapstructure:"kernel-url"`
-	Rootfs          string            `mapstructure:"rootfs"`
-	VCPUCount       int64             `mapstructure:"vcpu-count"`
-	MemSizeMib      int64             `mapstructure:"mem-size-mib"`
-	Network         NetworkConfig     `mapstructure:"network"`
-	Env             map[string]string `mapstructure:"env"`
-	Mounts          []MountConfig     `mapstructure:"mounts"`
-	ExposeKVM       bool              `mapstructure:"expose-kvm"`
-	SSHKey          string            `mapstructure:"ssh-key"`
-	WaitTimeoutSec  int               `mapstructure:"wait-timeout"`
-	Verbose         bool              `mapstructure:"verbose"`
-	VMID            string            `mapstructure:"-"`
+	StateDir       string            `mapstructure:"state-dir"`
+	FirecrackerBin string            `mapstructure:"firecracker-bin"`
+	JailerBin      string            `mapstructure:"jailer-bin"`
+	Jailer         JailerConfig      `mapstructure:"jailer"`
+	Kernel         string            `mapstructure:"kernel"`
+	KernelURL      string            `mapstructure:"kernel-url"`
+	KernelArgs     string            `mapstructure:"kernel-args"`
+	Rootfs         string            `mapstructure:"rootfs"`
+	LogLevel       string            `mapstructure:"log-level"`
+	CPUTemplate    string            `mapstructure:"cpu-template"`
+	DisableSMT     bool              `mapstructure:"disable-smt"`
+	VCPUCount      int64             `mapstructure:"vcpu-count"`
+	MemSizeMib     int64             `mapstructure:"mem-size-mib"`
+	Network        NetworkConfig     `mapstructure:"network"`
+	Env            map[string]string `mapstructure:"env"`
+	Mounts         []MountConfig     `mapstructure:"mounts"`
+	SSHKey         string            `mapstructure:"ssh-key"`
+	WaitTimeoutSec int               `mapstructure:"wait-timeout"`
+	Verbose        bool              `mapstructure:"verbose"`
+	VMID           string            `mapstructure:"-"`
 }
 
 func UserHomeDir() (string, error) {
@@ -84,9 +92,13 @@ func Default() Config {
 			ChrootBaseDir: filepath.Join(state, "jailer"),
 			UID:           1000,
 			GID:           1000,
+			NumaNode:      0,
+			Daemonize:     false,
 		},
 		Kernel:         filepath.Join(state, "images", "vmlinux"),
+		KernelArgs:     "console=ttyS0 reboot=k panic=1 net.ifnames=0 biosdevname=0",
 		Rootfs:         filepath.Join(state, "images", "rootfs.ext4"),
+		LogLevel:       "Info",
 		VCPUCount:      2,
 		MemSizeMib:     512,
 		WaitTimeoutSec: 120,
@@ -97,6 +109,10 @@ func Default() Config {
 		},
 		Env: map[string]string{},
 	}
+}
+
+var knownCPUTemplates = map[string]struct{}{
+	"C3": {}, "T2": {}, "T2S": {}, "T2CL": {}, "T2A": {}, "V1N1": {}, "None": {},
 }
 
 func (c Config) Validate() error {
@@ -117,6 +133,11 @@ func (c Config) Validate() error {
 	}
 	if c.MemSizeMib < 1 {
 		return fmt.Errorf("mem-size-mib must be >= 1")
+	}
+	if c.CPUTemplate != "" {
+		if _, ok := knownCPUTemplates[c.CPUTemplate]; !ok {
+			return fmt.Errorf("cpu-template %q is not a known template", c.CPUTemplate)
+		}
 	}
 	return nil
 }

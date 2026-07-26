@@ -15,20 +15,33 @@ type MountState struct {
 	Device string `json:"device,omitempty"`
 }
 
+const (
+	NetworkModeTAP = "tap"
+	NetworkModeCNI = "cni"
+)
+
 type State struct {
 	ID          string            `json:"id"`
 	PID         int               `json:"pid"`
 	SocketPath  string            `json:"socket_path"`
+	NetworkMode string            `json:"network_mode,omitempty"` // tap (default) or cni
+	CNINetwork  string            `json:"cni_network,omitempty"`
 	TapDev      string            `json:"tap_dev"`
 	GuestIP     string            `json:"guest_ip"`
 	GuestMAC    string            `json:"guest_mac"`
 	SSHKey      string            `json:"ssh_key"`
 	ChrootDir   string            `json:"chroot_dir"`
 	LogPath     string            `json:"log_path"`
+	JailerUID   int               `json:"jailer_uid,omitempty"`
+	JailerGID   int               `json:"jailer_gid,omitempty"`
 	StartedAt   time.Time         `json:"started_at"`
 	Mounts      []MountState      `json:"mounts,omitempty"`
 	BlockImages []string          `json:"block_images,omitempty"`
 	Env         map[string]string `json:"env,omitempty"`
+}
+
+func (s *State) IsCNI() bool {
+	return s != nil && s.NetworkMode == NetworkModeCNI
 }
 
 func statePath(stateDir, id string) string {

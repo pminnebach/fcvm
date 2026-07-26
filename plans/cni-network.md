@@ -96,7 +96,7 @@ NetworkInterfaces: []firecracker.NetworkInterface{{
 
 ## Host prerequisites
 
-Document in [docs/NETWORK.md](../docs/NETWORK.md):
+Document in [docs/network.md](../docs/network.md):
 
 - Plugins under `/opt/cni/bin`: `ptp`, `host-local`, `firewall`, `tc-redirect-tap` (and any others the conflist needs).
 - Config under `/etc/cni/conf.d`, e.g. `fcnet.conflist`:
@@ -131,7 +131,7 @@ Document in [docs/NETWORK.md](../docs/NETWORK.md):
 | [vm/state.go](../vm/state.go) | `NetworkMode` (or equivalent); skip tap/guest consistency checks for CNI |
 | [config/config.go](../config/config.go) / [cmd/root.go](../cmd/root.go) | Field already exists; bind/document if needed |
 | [fcvm.example.yaml](../fcvm.example.yaml) | Uncomment/document `cni-network` as optional CNI mode |
-| [docs/NETWORK.md](../docs/NETWORK.md) | CNI mode section, sample conflist, plugin deps |
+| [docs/network.md](../docs/network.md) | CNI mode section, sample conflist, plugin deps |
 | Tests | One unit test: building start config with CNI set yields `CNIConfiguration` and does not call `SetupTap` (extract iface-building helper if that keeps the test small) |
 
 ## Checklist
@@ -140,7 +140,7 @@ Document in [docs/NETWORK.md](../docs/NETWORK.md):
 - [ ] Skip `PatchNetwork` + `SetupTap` on CNI path; use `CNIConfiguration`.
 - [ ] After `Start`, resolve guest IP/gateway into state and deferred NFS/MMDS.
 - [ ] Stop/cleanup: no `TeardownTap` for CNI VMs; state validation skips TAP index checks.
-- [ ] Example yaml + NETWORK.md host setup.
+- [ ] Example yaml + docs/network.md host setup.
 - [ ] One runnable test that CNI branch selects `CNIConfiguration` and skips TAP setup.
 
 ## Success criteria
