@@ -7,7 +7,7 @@
 | Linux with `/dev/kvm` | Firecracker |
 | Root (sudo) | Jailer, TAP/NAT, NFS, cleanup |
 | Go 1.26+ (to build from source) | Module requires Go 1.26.5 |
-| Host tools | `ip`, `iptables`, Docker (for `build-rootfs`), `mkfs.ext4`, `truncate`, NFS server tools for mounts; `unsquashfs` for squashfs downloads |
+| Host tools | `ip`, `iptables`, `cp`, Docker (for `build-rootfs`), `mkfs.ext4`, `truncate`, NFS server tools for mounts; `unsquashfs` for squashfs downloads |
 
 ## Build fcvm
 
@@ -49,6 +49,10 @@ sudo ./fcvm build-rootfs --dockerfile ./Dockerfile
 ```
 
 `download jailer` downloads the same release binaries; `download jailer --build` clones Firecracker and builds via `tools/devtool`.
+
+### Integrity
+
+The firecracker/jailer tarball is checked against the SHA-256 published with the release before anything is unpacked, and the download fails if that checksum is unavailable — these binaries are executed as root. Kernel and rootfs URLs are arbitrary, so pass `--sha256 <hex>` to verify them; without it fcvm warns. Plain `http://` URLs are refused unless you pass `--insecure`.
 
 ## Quick start
 

@@ -71,10 +71,10 @@ fcvm injects boot hooks after export; you do not need to copy them into the Dock
 sudo ./fcvm download rootfs --url 'https://example.com/rootfs.squashfs'
 ```
 
-- **`.squashfs`:** download → `unsquashfs` → inject hooks → truncate **1G** → `mkfs.ext4` at the `rootfs` path.
-- **Other:** save the file as-is. Hooks/SSH are applied on `start` via `assets.PatchExt4` (and network patch in TAP mode).
+- **`.squashfs`:** download → `unsquashfs` → inject hooks → `mkfs.ext4` at the `rootfs` path. The image is sized from the unpacked contents unless `--size` is given.
+- **Other:** save the file as-is. Hooks, SSH key, env and network config are applied on `start` via `assets.PatchExt4`, in a single loop mount.
 
-`--url` is required; there is no default stock rootfs URL.
+`--url` is required; there is no default stock rootfs URL. Pass `--sha256` to verify the download.
 
 ## Injected guest layout
 
@@ -82,16 +82,24 @@ sudo ./fcvm download rootfs --url 'https://example.com/rootfs.squashfs'
 
 | Path | Role |
 |------|------|
-| `/usr/local/bin/fcvm-mmds.sh` | MMDS token + GET helpers |
-| `/usr/local/bin/fcvm-init-env` | env from MMDS → `/etc/fcvm/env` |
-| `/usr/local/bin/fcvm-mounts.sh` | stub |
-| `/usr/local/bin/fcvm-apply-mounts.sh` | NFS + virtio block mounts |
-| `/usr/local/bin/fcvm-start.sh` | net, DNS, mounts, env at boot |
+| `/usr/local/bin/fcvm-mmds.sh` | MMDS token + GET helpers (for your own use) |
+| `/usr/local/bin/fcvm-apply-mounts.sh` | mount everything in `/etc/fcvm/mounts` |
+| `/usr/local/bin/fcvm-start.sh` | net, DNS, mounts at boot |
 | `/etc/profile.d/fcvm.sh` | source env in login shells |
 | `/etc/systemd/system/fcvm-start.service` + wants link | systemd oneshot |
 | `/etc/rc.local` | fallback boot path |
 
-On TAP start, `/etc/fcvm/network` is also written with guest IP and gateway.
+The host writes three data files alongside them:
+
+| Path | Written | Contents |
+|------|---------|----------|
+| `/etc/fcvm/env` | at patch time | `export KEY='value'`, shell-quoted so any value survives |
+| `/etc/fcvm/network` | at patch time | `FCVM_GUEST_IP`, `FCVM_GATEWAY`, `FCVM_IFACE`, `FCVM_NAMESERVERS` |
+| `/etc/fcvm/mounts` | after boot, over SSH | one mount per line: `method`, `source`, `guest path`, tab-separated |
+
+The mount table arrives after boot because NFS exports cannot be scoped to the guest until its address is known. Env is baked in at patch time, so it does not depend on SSH and survives guest reboots.
+
+No JSON is parsed inside the guest, and `jq` is not required.
 
 ## Nested / workload images
 

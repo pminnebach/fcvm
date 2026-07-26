@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -180,6 +181,10 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 		}
 		p := pendingMount{cfg: mount, guestPath: guestPath, slot: i}
 		if mount.ResolvedMethod() == config.MountBlock {
+			if len(blockDrives) >= maxBlockDrives {
+				failCleanup()
+				return nil, fmt.Errorf("at most %d block mounts are supported per VM", maxBlockDrives)
+			}
 			img := filepath.Join(vmDir, fmt.Sprintf("mount-%d.ext4", i))
 			if err := syncDirToExt4(mount.Host, img, mount.Size); err != nil {
 				failCleanup()
@@ -286,6 +291,9 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 	if err := SaveState(m.cfg.StateDir, state); err != nil {
 		return stopAndFail(err)
 	}
+	// The index is claimed on disk now, so other starts can proceed while this
+	// one waits for the guest to come up.
+	unlock()
 
 	timeout := time.Duration(m.cfg.WaitTimeoutSec) * time.Second
 	if err := guest.WaitSSH(ctx, guestIP, key.PrivateKeyPath, timeout); err != nil {
@@ -350,6 +358,9 @@ func (m *Manager) setupMounts(id, guestIP, gateway string, pending []pendingMoun
 	}
 	return states, records, nil
 }
+
+// maxBlockDrives keeps guest device names within /dev/vdb../dev/vdz.
+const maxBlockDrives = 25
 
 // guestBlockDevice maps a data drive slot to its guest device node. The root
 // filesystem takes /dev/vda, so data drives start at /dev/vdb.
@@ -634,12 +645,61 @@ func syncExt4ToDir(img, hostDir string) (err error) {
 			err = errors.Join(err, fmt.Errorf("umount %s: %s: %w", mountPoint, strings.TrimSpace(string(out)), uErr))
 		}
 	}()
-	if out, cErr := exec.Command("rsync", "-a", "--delete",
-		"--exclude", "/lost+found",
-		mountPoint+"/", hostDir+"/").CombinedOutput(); cErr != nil {
-		return fmt.Errorf("rsync back to %s: %s: %w", hostDir, strings.TrimSpace(string(out)), cErr)
+	return mirrorDir(mountPoint, hostDir)
+}
+
+// mirrorDir makes dst match src: entries removed in src are deleted from dst,
+// then everything is copied across preserving ownership, modes and times.
+// Done with cp -a plus a prune rather than rsync, which is not installed
+// everywhere and would make write-back fail exactly when data is at stake.
+func mirrorDir(src, dst string) error {
+	stale, err := staleEntries(src, dst)
+	if err != nil {
+		return err
+	}
+	for _, p := range stale {
+		if err := os.RemoveAll(p); err != nil {
+			return err
+		}
+	}
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if e.Name() == "lost+found" {
+			continue // ext4 bookkeeping, not the user's data
+		}
+		if out, err := exec.Command("cp", "-a", filepath.Join(src, e.Name()), dst+"/").CombinedOutput(); err != nil {
+			return fmt.Errorf("copy %s: %s: %w", e.Name(), strings.TrimSpace(string(out)), err)
+		}
 	}
 	return nil
+}
+
+// staleEntries lists paths under dst with no counterpart in src.
+func staleEntries(src, dst string) ([]string, error) {
+	var stale []string
+	err := filepath.WalkDir(dst, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(dst, p)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return nil
+		}
+		if _, err := os.Lstat(filepath.Join(src, rel)); errors.Is(err, os.ErrNotExist) {
+			stale = append(stale, p)
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+		}
+		return nil
+	})
+	return stale, err
 }
 
 // jailerCgroupVersion picks cgroup v1 when legacy hierarchies are mounted, else v2.

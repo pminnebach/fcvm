@@ -61,6 +61,7 @@ env: {}
 | `cpu-template` | (empty) | `C3`, `T2`, `T2S`, `T2CL`, `T2A`, `V1N1`, `None` |
 | `disable-smt` | `false` | |
 | `wait-timeout` | `120` | Seconds waiting for SSH |
+| `stop-timeout` | `5` | Seconds to wait for exit before SIGKILL |
 | `verbose` | `false` | |
 
 ### Network
@@ -70,6 +71,7 @@ env: {}
 | `network.tap-ip` | `172.16.0.1` | Host side of /30 (TAP mode) |
 | `network.guest-ip` | `172.16.0.2` | Guest side of /30 (TAP mode) |
 | `network.cni-network` | (empty) | CNI conflist `name`; empty = TAP |
+| `network.nameservers` | host resolvers | Guest DNS; read from the host `/etc/resolv.conf` (loopback entries skipped), falling back to `8.8.8.8` |
 
 See [network.md](network.md).
 
@@ -94,10 +96,15 @@ mounts:
   - host: /data
     guest: /mnt/data
     mode: rw          # rw or ro
-    method: auto      # auto (prefer nfs), nfs, or block
+    method: auto      # auto (= nfs), nfs, or block
+    size: ""          # block only; empty sizes from the source tree
 ```
 
-CLI `--env` and `--mount` append/override on `start`. Mount flag form: `host:guest[:ro]` (method always `auto` from the flag).
+`method: auto` means NFS. It does **not** fall back to `block` when NFS is unavailable, because block mounts are copies and the fallback used to discard the guest's writes; ask for `block` explicitly if that is what you want. See [network.md](network.md#host-mounts-nfs-and-block).
+
+Env values are written into the guest with shell quoting, so quotes, `$`, backticks and backslashes survive intact.
+
+CLI `--env` and `--mount` append/override on `start`. Mount flag form: `host:guest[:opt,opt...]` where an option is `ro`, `rw`, `method=…` or `size=…`; unknown options are an error.
 
 ## Related docs
 
