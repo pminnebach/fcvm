@@ -108,16 +108,24 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 
 	var tapIP, guestIP, tapDev, guestMAC, hostIface string
 	if !useCNI {
-		tapIP, guestIP, err = network.SubnetForIndex(m.cfg.Network.TapIP, m.cfg.Network.GuestIP, index)
-		if err != nil {
-			return nil, err
-		}
-		tapDev = network.TapDevName(index)
-		guestMAC = network.GuestMAC(guestIP)
 		hostIface, err = network.DefaultIface()
 		if err != nil {
 			return nil, err
 		}
+		var rebased bool
+		tapIP, guestIP, rebased, err = network.ResolveTapAddrs(m.cfg.Network.TapIP, m.cfg.Network.GuestIP, index)
+		if err != nil {
+			return nil, err
+		}
+		if rebased {
+			oldTap, oldGuest, _ := network.SubnetForIndex(m.cfg.Network.TapIP, m.cfg.Network.GuestIP, index)
+			oldSubnet, _ := network.GuestSubnet(oldTap)
+			newSubnet, _ := network.GuestSubnet(tapIP)
+			m.log.Warnf("guest subnet %s collides with the host; using %s (%s/%s) instead of %s/%s",
+				oldSubnet, newSubnet, tapIP, guestIP, oldTap, oldGuest)
+		}
+		tapDev = network.TapDevName(index)
+		guestMAC = network.GuestMAC(guestIP)
 	}
 
 	rootfsCopy := filepath.Join(vmDir, "rootfs.ext4")

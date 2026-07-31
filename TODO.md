@@ -5,7 +5,6 @@
 - [ ] Interactive serial console via screen (see [plans/serial-console.md](plans/serial-console.md))
 - [ ] Expose unused Firecracker jailer isolation knobs (see [plans/jailer-isolation.md](plans/jailer-isolation.md))
 - [ ] Implement optional CNI networking (see [plans/cni-network.md](plans/cni-network.md))
-- [ ] Refuse TAP start when the guest /30 overlaps host addresses/routes (nested sandbox stay-alive; see [plans/host-subnet-collision.md](plans/host-subnet-collision.md))
 
 ### Follow-ups from the review
 
@@ -33,3 +32,4 @@
 - [x] Guest bootstrap: configurable DNS, no shell JSON parsing, quote-safe env injection ([plans/done/guest-bootstrap.md](plans/done/guest-bootstrap.md))
 - [x] Add CI (gofmt, vet, test, build) ([plans/done/repo-hygiene.md](plans/done/repo-hygiene.md))
 - [x] Delete dead code, fix always-nil error and the `docker create` panic, repoint the fake network-config test, stop root tests from mutating the host ([plans/done/repo-hygiene.md](plans/done/repo-hygiene.md))
+- [x] Auto-rebase default TAP `/30` on host collision; hard-error for explicit colliding bases ([plans/done/host-subnet-collision.md](plans/done/host-subnet-collision.md))

@@ -38,6 +38,8 @@ When `cni-network` is empty:
 
 Defaults: `tap-ip: 172.16.0.1`, `guest-ip: 172.16.0.2` (VM index 0). Index 1 → `172.16.1.1` / `172.16.1.2`, and so on. An index that would push the third octet past 255 is an error rather than a silent wrap onto another VM's address.
 
+Before creating the TAP, fcvm checks that the derived `/30` does not overlap host-local IPv4 addresses or on-link routes (so a nested `fcvm start` cannot steal the outer guest's gateway). With the stock default bases, a collision auto-rebases onto `10.200.N.0/30` (same index, then a walk of the third octet) and logs the change. If `network.tap-ip` / `network.guest-ip` were set to something other than the defaults, a collision is a hard error — set a non-overlapping base instead.
+
 ### Index allocation
 
 The index is the **lowest one not claimed by an existing VM**, not a count of running VMs. Counting would reuse the index of a stopped VM and collide with VMs still running — and since the index also selects the TAP name and the per-VM jailer uid, that collision would take over a live VM's network. Allocation and the state write that claims the index are serialised with a lock file at `<state-dir>/.lock`.
