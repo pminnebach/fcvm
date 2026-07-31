@@ -37,6 +37,7 @@ jobs:
         run: go build -buildvcs=false -o fcvm-guest-agent ./guest/agent
 
       - uses: goreleaser/goreleaser-action@v6
+        if: github.event_name == 'pull_request'
         with:
           version: "~> v2"
           args: release --snapshot --clean --skip=publish
