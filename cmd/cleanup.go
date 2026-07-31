@@ -11,6 +11,7 @@ import (
 var cleanupCmd = &cobra.Command{
 	Use:   "cleanup [id]",
 	Short: "Cleanup VM resources",
+	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		c, err := loadConfig()
 		if err != nil {
@@ -24,7 +25,7 @@ var cleanupCmd = &cobra.Command{
 		if err := vm.NewManager(c).Cleanup(all, id); err != nil {
 			return err
 		}
-		fmt.Println("cleanup complete")
+		fmt.Fprintln(cmd.OutOrStdout(), "cleanup complete")
 		return nil
 	},
 }

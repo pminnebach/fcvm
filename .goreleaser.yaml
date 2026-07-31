@@ -16,6 +16,19 @@ builds:
       - -buildvcs=false
     ldflags:
       - -s -w -X github.com/pminnebach/fcvm/cmd.version={{ if .IsSnapshot }}{{ .ShortCommit }}{{ else }}{{ .Version }}{{ end }}
+  - id: fcvm-guest-agent
+    main: ./guest/agent
+    binary: fcvm-guest-agent
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+    flags:
+      - -buildvcs=false
+    ldflags:
+      - -s -w
 
 before:
   hooks:

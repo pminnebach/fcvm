@@ -13,10 +13,11 @@ After creating or modifying application source (especially `*.go`), before consi
 go test ./...
 ```
 
-2. Then build the binary:
+2. Then build the binaries:
 
 ```bash
 go build -buildvcs=false -o fcvm .
+go build -buildvcs=false -o fcvm-guest-agent ./guest/agent
 ```
 
 3. Both must exit 0. If either fails, fix the errors and re-run the full sequence until clean.

@@ -117,6 +117,24 @@ make olddefconfig
 
 Keep Firecracker essentials: `CONFIG_VIRTIO_BLK`, `CONFIG_VIRTIO_NET`, `CONFIG_EXT4_FS`, serial/`ttyS0`.
 
+### Vsock host support (for nested guests)
+
+If this guest will run Firecracker with `--enable-vsock` (L1 hosting L2), enable the **host-side** vsock backend as built-in (`=y`):
+
+```bash
+scripts/config --enable CONFIG_VSOCKETS
+scripts/config --enable CONFIG_VHOST
+scripts/config --enable CONFIG_VHOST_VSOCK
+make olddefconfig
+```
+
+| Kernel | Config | Device after boot |
+|--------|--------|-------------------|
+| This guest (hosts Firecracker) | `CONFIG_VHOST_VSOCK` | `/dev/vhost-vsock` |
+| Inner L2 guest | `CONFIG_VIRTIO_VSOCKETS` | `/dev/vsock` (already `y` in stock Firecracker CI configs) |
+
+`CONFIG_VSOCKETS` is a dependency of `VHOST_VSOCK` (Networking support → Virtual Socket protocol). Prefer `=y` over a module so no initramfs is required.
+
 4. Compile and install:
 
 ```bash
@@ -137,7 +155,7 @@ kernel: /path/to/vmlinux
 
 ```bash
 sudo ./fcvm start myvm
-sudo ./fcvm exec myvm -- sh -c 'ls -l /dev/kvm /dev/net/tun; grep -E "vmx|svm" /proc/cpuinfo | head'
+sudo ./fcvm exec myvm -- sh -c 'ls -l /dev/kvm /dev/net/tun /dev/vhost-vsock; grep -E "vmx|svm" /proc/cpuinfo | head'
 ```
 
 | Check | Expect |
@@ -145,6 +163,7 @@ sudo ./fcvm exec myvm -- sh -c 'ls -l /dev/kvm /dev/net/tun; grep -E "vmx|svm" /
 | `/proc/cpuinfo` | `vmx` (Intel) or `svm` (AMD) |
 | `/dev/kvm` | character device present |
 | `/dev/net/tun` | character device present |
+| `/dev/vhost-vsock` | present if you enabled `CONFIG_VHOST_VSOCK` (needed for L2 `--enable-vsock`) |
 
 Running L2 VMs still needs userspace tools (QEMU, Firecracker, etc.) in the guest rootfs — see [rootfs.md](rootfs.md).
 
@@ -155,6 +174,7 @@ Running L2 VMs still needs userspace tools (QEMU, Firecracker, etc.) in the gues
 | No `vmx`/`svm` in guest | Host nested disabled | Enable `nested=1`, reload module, confirm sysfs |
 | No `/dev/kvm` but CPU flags present | KVM missing or built as module | Rebuild with options `=y` |
 | L2 `tuntap` fails | Missing `CONFIG_TUN` | Rebuild with `CONFIG_TUN=y` |
+| L2 `vsock-exec` fails / guest agent `address family not supported` | Missing host `CONFIG_VHOST_VSOCK` | Rebuild L1 with `CONFIG_VHOST_VSOCK=y`; confirm `/dev/vhost-vsock` |
 | No network / rootfs | Virtio or ext4 disabled | Re-copy Firecracker base config |
 | Boot hang / no serial | Serial options dropped | Keep `ttyS0` from base config |
 | Stock kernel still used | Wrong path | Copy to `~/.fcvm/images/vmlinux` or set `kernel:` |

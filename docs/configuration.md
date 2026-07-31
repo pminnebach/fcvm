@@ -50,6 +50,9 @@ env: {}
 | `kernel-args` | `console=ttyS0 reboot=k panic=1 net.ifnames=0 biosdevname=0` | Guest cmdline |
 | `rootfs` | `~/.fcvm/images/rootfs.ext4` | Template ext4 |
 | `ssh-key` | `~/.fcvm/id_ed25519` | Created if missing |
+| `enable-experimental` | `false` | Skip confirmation for experimental commands/flags |
+| `enable-vsock` | `false` | Attach virtio-vsock and inject guest agent on start (**experimental**) |
+| `guest-agent-bin` | `~/.fcvm/bin/fcvm-guest-agent` | Used only when `enable-vsock` is true (**experimental**) |
 
 ### Machine
 
@@ -61,6 +64,7 @@ env: {}
 | `cpu-template` | (empty) | `C3`, `T2`, `T2S`, `T2CL`, `T2A`, `V1N1`, `None` |
 | `disable-smt` | `false` | |
 | `wait-timeout` | `120` | Seconds waiting for SSH |
+| `stop-timeout` | `5` | Seconds to wait for exit before SIGKILL |
 | `verbose` | `false` | |
 
 ### Network
@@ -69,7 +73,8 @@ env: {}
 |-----|---------|-------|
 | `network.tap-ip` | `172.16.0.1` | Host side of /30 (TAP mode) |
 | `network.guest-ip` | `172.16.0.2` | Guest side of /30 (TAP mode) |
-| `network.cni-network` | (empty) | CNI conflist `name`; empty = TAP |
+| `network.cni-network` | (empty) | CNI conflist `name`; empty = TAP (**experimental**) |
+| `network.nameservers` | host resolvers | Guest DNS; read from the host `/etc/resolv.conf` (loopback entries skipped), falling back to `8.8.8.8` |
 
 See [network.md](network.md).
 
@@ -81,7 +86,7 @@ See [network.md](network.md).
 | `jailer.uid` / `jailer.gid` | `1000` | |
 | `jailer.per-vm-uids` | `false` | uid/gid = base + VM index |
 | `jailer.numa-node` | `0` | |
-| `jailer.daemonize` | `false` | |
+| `jailer.daemonize` | `false` | Jailer `setsid` + stdio → `/dev/null`. fcvm tracks the VM via `firecracker.pid` under the jail root (required when daemonize is on). Leave `false` unless you want that; incompatible with the planned `fcvm console` attach path. |
 | `jailer.parent-cgroup` | (empty) | |
 | `jailer.cgroup` | (empty list) | e.g. `memory.max=1G` |
 
@@ -94,10 +99,15 @@ mounts:
   - host: /data
     guest: /mnt/data
     mode: rw          # rw or ro
-    method: auto      # auto (prefer nfs), nfs, or block
+    method: auto      # auto (= nfs), nfs, or block
+    size: ""          # block only; empty sizes from the source tree
 ```
 
-CLI `--env` and `--mount` append/override on `start`. Mount flag form: `host:guest[:ro]` (method always `auto` from the flag).
+`method: auto` means NFS. It does **not** fall back to `block` when NFS is unavailable, because block mounts are copies and the fallback used to discard the guest's writes; ask for `block` explicitly if that is what you want. See [network.md](network.md#host-mounts-nfs-and-block).
+
+Env values are written into the guest with shell quoting, so quotes, `$`, backticks and backslashes survive intact.
+
+CLI `--env` and `--mount` append/override on `start`. Mount flag form: `host:guest[:opt,opt...]` where an option is `ro`, `rw`, `method=…` or `size=…`; unknown options are an error.
 
 ## Related docs
 

@@ -17,11 +17,20 @@ Global persistent flags (also bindable via config / `FCVM_*` env — see [config
 | `--vcpu-count` | `2` | vCPUs |
 | `--mem-size-mib` | `512` | Memory MiB |
 | `--ssh-key` | `~/.fcvm/id_ed25519` | SSH private key |
-| `--cni-network` | (empty) | CNI network name; empty = static TAP |
+| `--enable-experimental` | `false` | Skip confirmation for experimental commands/flags |
+| `--enable-vsock` | `false` | Attach virtio-vsock and inject the guest agent (**experimental**) |
+| `--guest-agent-bin` | `~/.fcvm/bin/fcvm-guest-agent` | Guest vsock agent binary (used when `--enable-vsock`) (**experimental**) |
+| `--cni-network` | (empty) | CNI network name; empty = static TAP (**experimental**) |
+| `--nameservers` | host resolvers | Guest DNS servers |
 | `--verbose` | `false` | Verbose logging |
 | `--wait-timeout` | `120` | Seconds to wait for guest SSH |
+| `--stop-timeout` | `5` | Seconds to wait for a VM to exit before SIGKILL |
 
-Most operational commands require **root**.
+Most operational commands require **root**. Runtime errors print a single line; usage is shown only for flag and argument mistakes. Ctrl+C cancels an in-progress command, including the SSH wait during `start` and any download.
+
+Using an experimental command or flag prompts for confirmation unless you pass `--enable-experimental` (or set `enable-experimental` / `FCVM_ENABLE_EXPERIMENTAL`). See `fcvm experimental` for the full list. Non-interactive runs must use the bypass flag.
+
+VM ids must be a single path component of letters, digits, `-`, `_` and `.`, at most 64 characters.
 
 ## `fcvm start [id]`
 
@@ -30,20 +39,26 @@ Start a microVM via jailer. If `id` is omitted (and `--id` unset), generates `vm
 | Flag | Meaning |
 |------|---------|
 | `--id` | VM identifier (alternative to positional arg) |
-| `--mount` | `host:guest[:ro]` (repeatable); method `auto` |
+| `--mount` | `host:guest[:opt,opt...]` (repeatable), see below |
 | `--env` | `KEY=VALUE` (repeatable map) |
+
+Mount options are comma-separated: `ro`, `rw` (default), `method=nfs|block|auto` (default `auto`, which means NFS), and `size=N` for block images. Unknown options are rejected rather than silently ignored.
 
 ```bash
 sudo ./fcvm start myvm --env FOO=bar --mount /data:/mnt/data
+sudo ./fcvm start myvm --mount /data:/mnt/data:ro
+sudo ./fcvm start myvm --mount /data:/mnt/data:method=block,size=2G
 ```
+
+If NFS is unavailable, `start` fails rather than silently copying the directory into the VM. See [network.md](network.md#host-mounts-nfs-and-block).
 
 ## `fcvm stop <id>`
 
-Signal the VM and tear down TAP/CNI, NFS, jailer tree, and state.
+SIGTERM the VM, wait up to `--stop-timeout` for it to exit, then SIGKILL. Mirrors writable block mounts back to their host directories, then tears down TAP/CNI, NFS, jailer tree, and state.
 
 ## `fcvm list`
 
-Tabular list: ID, guest IP, PID, uptime.
+Tabular list: ID, status, guest IP, PID, uptime. Status is `running` or `stopped`, determined from the process rather than from the state file existing, so a crashed VM shows as `stopped` (run `cleanup` to reclaim it).
 
 ## `fcvm exec <id> -- <command…>`
 
@@ -52,6 +67,19 @@ Run a command in the guest over SSH.
 ```bash
 sudo ./fcvm exec myvm -- uname -a
 ```
+
+## `fcvm vsock-exec <id> -- <command…>`
+
+Run a command in the guest over vsock (split channel: command in, output back to this console). **Experimental.** The VM must have been started with `--enable-vsock` (and a guest agent at `--guest-agent-bin`). See [network.md](network.md#vsock).
+
+```bash
+sudo ./fcvm start myvm --enable-vsock --enable-experimental
+sudo ./fcvm vsock-exec myvm --enable-experimental -- uname -a
+```
+
+## `fcvm experimental`
+
+List experimental commands and flags. No confirmation prompt.
 
 ## `fcvm shell <id>`
 
@@ -69,10 +97,13 @@ Tear down resources for one VM, or `--all` for every VM under the state dir. Bes
 
 | Subcommand | Notes |
 |------------|-------|
-| `firecracker` | Latest GitHub release tarball → `bin/firecracker` + `jailer` |
+| `firecracker` | Latest GitHub release tarball → `bin/firecracker` + `jailer`; SHA-256 verified against the checksum published with the release |
 | `jailer` | Same release, or `--build` via Firecracker `devtool` |
 | `kernel` | CI latest, or `--url` / `kernel-url` |
-| `rootfs` | `--url` required |
+| `rootfs` | `--url` required; `--size` sets the ext4 size when converting a squashfs |
+| `guest-agent` | Matching this fcvm version from GitHub releases → `guest-agent-bin` (**experimental**); optional `--url` for a direct binary |
+
+`kernel`, `rootfs`, and `guest-agent` accept `--sha256 <hex>` to verify the download, and `--insecure` to allow a plain `http://` URL. Without a checksum they warn; a mismatch is a hard failure and leaves nothing on disk. The firecracker release and the default guest-agent release are never installed unverified.
 
 ## `fcvm build-rootfs`
 
@@ -83,7 +114,7 @@ Build an ext4 image from a Dockerfile. See [rootfs.md](rootfs.md).
 | `--dockerfile` | (required) |
 | `--tag` | `fcvm-rootfs:latest` |
 | `--output` | config `rootfs` |
-| `--size` | `4G` |
+| `--size` | `4G` (empty sizes from the image contents) |
 
 ## `fcvm self-check`
 

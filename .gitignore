@@ -1,5 +1,6 @@
-# fcvm binary
+# fcvm binaries
 /fcvm
+/fcvm-guest-agent
 
 # Go build outputs
 *.exe

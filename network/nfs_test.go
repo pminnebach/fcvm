@@ -10,7 +10,7 @@ import (
 )
 
 func TestNFSExportLineMapsToOwner(t *testing.T) {
-	line := nfsExportLine("/tmp/fcvm-exports/test-0/share", 501, 20, false)
+	line := nfsExportLine("/var/lib/fcvm/exports/test-0/share", "172.16.0.2", 501, 20, false)
 	if runtime.GOOS == "darwin" {
 		if !strings.Contains(line, "-mapall=501") {
 			t.Fatalf("darwin export = %q", line)
@@ -22,6 +22,27 @@ func TestNFSExportLineMapsToOwner(t *testing.T) {
 	}
 	if strings.Contains(line, "no_root_squash") {
 		t.Fatal("must not use no_root_squash")
+	}
+}
+
+// The export must be offered to the guest only. A "*" client pattern shares
+// the host directory with every machine that can reach port 2049.
+func TestNFSExportLineScopedToGuest(t *testing.T) {
+	if runtime.GOOS == "darwin" {
+		t.Skip("darwin uses a different exports syntax")
+	}
+	line := nfsExportLine("/var/lib/fcvm/exports/test-0/share", "172.16.0.2", 0, 0, false)
+	if strings.Contains(line, "*") {
+		t.Fatalf("export is world-scoped: %q", line)
+	}
+	if !strings.Contains(line, "172.16.0.2(") {
+		t.Fatalf("export is not scoped to the guest: %q", line)
+	}
+}
+
+func TestSetupNFSExportRequiresClient(t *testing.T) {
+	if _, err := SetupNFSExport(t.TempDir(), t.TempDir(), "vm", "", false); err == nil {
+		t.Fatal("expected an error when no guest address is known")
 	}
 }
 
@@ -41,7 +62,7 @@ func TestPathOwnerIDs(t *testing.T) {
 
 func TestIsMountPointFalseForTempDir(t *testing.T) {
 	dir := t.TempDir()
-	if isMountPoint(dir) {
+	if IsMountPoint(dir) {
 		t.Fatalf("temp dir should not be a mount point: %s", dir)
 	}
 }
@@ -71,7 +92,7 @@ func TestRemoveExportDirSkipsWhileMounted(t *testing.T) {
 		_ = os.RemoveAll(exportRoot)
 	}()
 
-	if !isMountPoint(share) {
+	if !IsMountPoint(share) {
 		t.Fatal("expected share to be a mount point after bind")
 	}
 
@@ -85,7 +106,7 @@ func TestRemoveExportDirSkipsWhileMounted(t *testing.T) {
 	if string(got) != markerData {
 		t.Fatalf("host marker corrupted: %q", got)
 	}
-	if !isMountPoint(share) {
+	if !IsMountPoint(share) {
 		t.Fatal("share should still be mounted after refused RemoveAll")
 	}
 }

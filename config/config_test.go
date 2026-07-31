@@ -79,4 +79,53 @@ func TestDefaultMachineKnobs(t *testing.T) {
 	if c.Jailer.NumaNode != 0 || c.Jailer.Daemonize {
 		t.Fatalf("jailer defaults: numa=%d daemonize=%v", c.Jailer.NumaNode, c.Jailer.Daemonize)
 	}
+	if c.StopTimeoutSec <= 0 {
+		t.Fatalf("stop-timeout = %d, want a positive default", c.StopTimeoutSec)
+	}
+	if len(c.Network.Nameservers) == 0 {
+		t.Fatal("nameservers default is empty; guests would have no DNS")
+	}
+}
+
+func TestValidateMounts(t *testing.T) {
+	base := Default()
+	base.Mounts = []MountConfig{{Host: "/data", Guest: "/mnt", Mode: "ro", Method: MountBlock}}
+	if err := base.Validate(); err != nil {
+		t.Fatalf("valid mount rejected: %v", err)
+	}
+	for _, bad := range []MountConfig{
+		{Host: "", Guest: "/mnt"},
+		{Host: "/data", Method: "virtiofs"},
+		{Host: "/data", Mode: "readonly"},
+	} {
+		c := Default()
+		c.Mounts = []MountConfig{bad}
+		if err := c.Validate(); err == nil {
+			t.Errorf("Validate accepted %+v", bad)
+		}
+	}
+}
+
+// auto must mean NFS. It used to fall back to a block-device copy, which
+// silently discarded the guest's writes.
+func TestResolvedMethod(t *testing.T) {
+	for in, want := range map[string]string{"": MountNFS, MountAuto: MountNFS, MountNFS: MountNFS, MountBlock: MountBlock} {
+		if got := (MountConfig{Method: in}).ResolvedMethod(); got != want {
+			t.Errorf("ResolvedMethod(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// A loopback resolver on the host is unreachable from the guest, so it must
+// not be handed to it.
+func TestHostNameserversSkipsLoopback(t *testing.T) {
+	ns := HostNameservers()
+	if len(ns) == 0 {
+		t.Fatal("expected at least a fallback nameserver")
+	}
+	for _, s := range ns {
+		if s == "127.0.0.1" || s == "::1" {
+			t.Fatalf("loopback resolver %q handed to the guest", s)
+		}
+	}
 }

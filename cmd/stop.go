@@ -20,7 +20,7 @@ var stopCmd = &cobra.Command{
 		if err := vm.NewManager(c).Stop(args[0]); err != nil {
 			return err
 		}
-		fmt.Printf("stopped VM %q\n", args[0])
+		fmt.Fprintf(cmd.OutOrStdout(), "stopped VM %q\n", args[0])
 		return nil
 	},
 }

@@ -23,6 +23,18 @@ network:
   tap-ip: 172.16.0.1
   guest-ip: 172.16.0.2
   # cni-network: fcnet   # optional CNI mode; see docs/network.md
+  # nameservers:         # default: the host's own resolvers
+  #   - 1.1.1.1
 env: {}
+# mounts:
+#   - host: /data
+#     guest: /mnt/data
+#     mode: rw           # rw or ro
+#     method: auto       # auto (= nfs), nfs, or block
+#     size: ""           # block only; empty sizes from the source tree
 ssh-key: ~/.fcvm/id_ed25519
+# enable-experimental: false
+# enable-vsock: false
+# guest-agent-bin: ~/.fcvm/bin/fcvm-guest-agent
 wait-timeout: 120
+# stop-timeout: 5        # seconds to wait for a VM to exit before SIGKILL

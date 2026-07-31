@@ -5,8 +5,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 )
+
+// resolvMarker identifies an /etc/resolv.conf that fcvm wrote, so the guest
+// bootstrap can refresh its own file without clobbering an operator's.
+const resolvMarker = "# managed by fcvm"
 
 const mmdsHelpers = `#!/bin/sh
 MMDS=169.254.169.254
@@ -28,56 +33,32 @@ fcvm_mmds_get() {
 }
 `
 
-const initEnvScript = `#!/bin/sh
-. /usr/local/bin/fcvm-mmds.sh
-fcvm_mmds_get latest/meta-data/env /tmp/fcvm-env.json 2>/dev/null || exit 0
-[ -s /tmp/fcvm-env.json ] || exit 0
-mkdir -p /etc/fcvm
-: > /etc/fcvm/env
-# ponytail: naive KEY=VAL parse; upgrade path: jq
-grep -o '"[^"]*"[[:space:]]*:[[:space:]]*"[^"]*"' /tmp/fcvm-env.json | while read -r pair; do
-  key=$(echo "$pair" | cut -d'"' -f2)
-  val=$(echo "$pair" | cut -d'"' -f4)
-  echo "export ${key}=\"${val}\"" >> /etc/fcvm/env
-done
-`
-
-const mountsScript = `#!/bin/sh
-. /usr/local/bin/fcvm-mmds.sh
-fcvm_mmds_get latest/meta-data/mounts /tmp/fcvm-mounts.json 2>/dev/null || exit 0
-[ -s /tmp/fcvm-mounts.json ] || exit 0
-# mounts applied by guest agent reading MMDS at boot; see fcvm-start.sh
-`
-
+// applyMountsScript reads the mount table the host wrote, one record per line
+// with tab-separated method, source and guest path. The host already knows all
+// of this, so the guest does no parsing beyond splitting fields.
 const applyMountsScript = `#!/bin/sh
-. /usr/local/bin/fcvm-mmds.sh
-fcvm_mmds_route
-fcvm_mmds_get latest/meta-data/mounts /tmp/fcvm-mounts.json 2>/dev/null || true
-[ -s /tmp/fcvm-mounts.json ] || exit 0
-grep -o '"guest"[[:space:]]*:[[:space:]]*"[^"]*"' /tmp/fcvm-mounts.json | cut -d'"' -f4 | while read -r gp; do
-  chunk=$(grep -B5 "\"guest\"[[:space:]]*:[[:space:]]*\"$gp\"" /tmp/fcvm-mounts.json | tail -6)
-  method=$(echo "$chunk" | sed -n 's/.*"method"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
-  hp=$(echo "$chunk" | sed -n 's/.*"host"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
-  [ "$method" = "block" ] && continue
-  mkdir -p "$gp"
-  mount -t nfs -o nolock "$hp" "$gp" 2>/dev/null || true
-done
-block_i=0
-for gp in $(grep -B3 '"method"[[:space:]]*:[[:space:]]*"block"' /tmp/fcvm-mounts.json | sed -n 's/.*"guest"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'); do
-  dev=""
-  [ "$block_i" -eq 0 ] && [ -b /dev/vdb ] && dev=/dev/vdb
-  [ "$block_i" -eq 1 ] && [ -b /dev/vdc ] && dev=/dev/vdc
-  [ "$block_i" -eq 2 ] && [ -b /dev/vdd ] && dev=/dev/vdd
-  block_i=$((block_i + 1))
-  [ -n "$dev" ] || continue
-  mkdir -p "$gp"
-  mount "$dev" "$gp" 2>/dev/null || true
-done
+[ -f /etc/fcvm/mounts ] || exit 0
+tab=$(printf '\t')
+while IFS="$tab" read -r method source guest; do
+  [ -n "$guest" ] || continue
+  mkdir -p "$guest" || continue
+  case "$method" in
+    nfs)
+      mount -t nfs -o nolock "$source" "$guest" || echo "fcvm: nfs mount $source -> $guest failed" >&2
+      ;;
+    block)
+      if [ -b "$source" ]; then
+        mount "$source" "$guest" || echo "fcvm: mount $source -> $guest failed" >&2
+      else
+        echo "fcvm: block device $source missing for $guest" >&2
+      fi
+      ;;
+  esac
+done < /etc/fcvm/mounts
 `
 
 const startScript = `#!/bin/sh
 [ -f /etc/fcvm/network ] && . /etc/fcvm/network
-. /usr/local/bin/fcvm-mmds.sh
 IF="${FCVM_IFACE:-eth0}"
 if ! ip link show "$IF" >/dev/null 2>&1; then
   IF=$(ip -o link show | awk -F': ' '$2 != "lo" {print $2; exit}')
@@ -87,21 +68,27 @@ mkdir -p /root/.ssh
 chmod 700 /root /root/.ssh
 [ -f /root/.ssh/authorized_keys ] && chmod 600 /root/.ssh/authorized_keys
 if ! ip -o -4 addr show dev "$IF" scope global 2>/dev/null | grep -q .; then
-  GW="${FCVM_GATEWAY:-172.16.0.1}"
   ip link set "$IF" up 2>/dev/null || true
-  ip addr add "${FCVM_GUEST_IP:-172.16.0.2}/30" dev "$IF" 2>/dev/null || true
-  ip route add default via "$GW" dev "$IF" 2>/dev/null || true
+  if [ -n "$FCVM_GUEST_IP" ]; then
+    ip addr add "${FCVM_GUEST_IP}/30" dev "$IF" 2>/dev/null || true
+  fi
+  if [ -n "$FCVM_GATEWAY" ]; then
+    ip route add default via "$FCVM_GATEWAY" dev "$IF" 2>/dev/null || true
+  fi
 fi
-fcvm_mmds_route
-echo nameserver 8.8.8.8 > /etc/resolv.conf
+[ -f /usr/local/bin/fcvm-mmds.sh ] && . /usr/local/bin/fcvm-mmds.sh && fcvm_mmds_route
+# Only write resolv.conf if it is missing or was written by us.
+if [ -n "$FCVM_NAMESERVERS" ]; then
+  if [ ! -s /etc/resolv.conf ] || head -n 1 /etc/resolv.conf | grep -q 'managed by fcvm'; then
+    { echo '` + resolvMarker + `'
+      for ns in $FCVM_NAMESERVERS; do echo "nameserver $ns"; done
+    } > /etc/resolv.conf
+  fi
+fi
 /usr/local/bin/fcvm-apply-mounts.sh || true
-/usr/local/bin/fcvm-init-env || true
 `
 
-const profileScript = `if [ ! -s /etc/fcvm/env ]; then
-  /usr/local/bin/fcvm-init-env 2>/dev/null || true
-fi
-[ -f /etc/fcvm/env ] && . /etc/fcvm/env
+const profileScript = `[ -f /etc/fcvm/env ] && . /etc/fcvm/env
 `
 
 const systemdUnit = `[Unit]
@@ -118,14 +105,26 @@ RemainAfterExit=yes
 WantedBy=multi-user.target
 `
 
+const guestAgentUnit = `[Unit]
+Description=fcvm guest vsock agent
+After=network.target
+DefaultDependencies=yes
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/fcvm-guest-agent
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+`
+
 func InjectHooks(rootDir string) error {
 	files := map[string]string{
-		"usr/local/bin/fcvm-mmds.sh":        mmdsHelpers,
-		"usr/local/bin/fcvm-init-env":     initEnvScript,
-		"usr/local/bin/fcvm-mounts.sh":    mountsScript,
+		"usr/local/bin/fcvm-mmds.sh":         mmdsHelpers,
 		"usr/local/bin/fcvm-apply-mounts.sh": applyMountsScript,
-		"usr/local/bin/fcvm-start.sh":     startScript,
-		"etc/profile.d/fcvm.sh":        profileScript,
+		"usr/local/bin/fcvm-start.sh":        startScript,
+		"etc/profile.d/fcvm.sh":              profileScript,
 	}
 	for rel, content := range files {
 		path := filepath.Join(rootDir, rel)
@@ -158,10 +157,40 @@ func InjectHooks(rootDir string) error {
 /usr/local/bin/fcvm-start.sh
 exit 0
 `
-	if err := os.WriteFile(rc, []byte(rcContent), 0o755); err != nil {
+	return os.WriteFile(rc, []byte(rcContent), 0o755)
+}
+
+// InjectGuestAgent copies the host-built agent binary into the rootfs and
+// enables a long-running systemd unit that listens on vsock.
+func InjectGuestAgent(rootDir, agentPath string) error {
+	if agentPath == "" {
+		return fmt.Errorf("guest agent binary path is empty")
+	}
+	data, err := os.ReadFile(agentPath)
+	if err != nil {
+		return fmt.Errorf("read guest agent %q: %w", agentPath, err)
+	}
+	dest := filepath.Join(rootDir, "usr/local/bin/fcvm-guest-agent")
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return err
 	}
-	return nil
+	if err := os.WriteFile(dest, data, 0o755); err != nil {
+		return err
+	}
+	unitDir := filepath.Join(rootDir, "etc/systemd/system")
+	if err := os.MkdirAll(unitDir, 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(unitDir, "fcvm-guest-agent.service"), []byte(guestAgentUnit), 0o644); err != nil {
+		return err
+	}
+	wantDir := filepath.Join(rootDir, "etc/systemd/system/multi-user.target.wants")
+	if err := os.MkdirAll(wantDir, 0o755); err != nil {
+		return err
+	}
+	link := filepath.Join(wantDir, "fcvm-guest-agent.service")
+	_ = os.Remove(link)
+	return os.Symlink("../fcvm-guest-agent.service", link)
 }
 
 func InjectSSHKey(rootDir, pubKey string) error {
@@ -186,9 +215,11 @@ func InjectSSHKey(rootDir, pubKey string) error {
 	if err := os.Chmod(authKeys, 0o600); err != nil {
 		return err
 	}
-	for _, p := range []string{rootHome, dir, authKeys} {
-		if err := os.Chown(p, 0, 0); err != nil {
-			return err
+	if os.Geteuid() == 0 {
+		for _, p := range []string{rootHome, dir, authKeys} {
+			if err := os.Chown(p, 0, 0); err != nil {
+				return err
+			}
 		}
 	}
 	return injectSSHConfig(rootDir)
@@ -203,25 +234,116 @@ func injectSSHConfig(rootDir string) error {
 	return os.WriteFile(filepath.Join(dir, "fcvm.conf"), []byte(cfg), 0o644)
 }
 
-func InjectNetwork(rootDir, guestIP, tapIP string) error {
+// InjectNetwork writes the static guest network settings sourced by the boot
+// hooks. guestIP and gateway may be empty in CNI mode, where the SDK
+// configures the interface.
+func InjectNetwork(rootDir, guestIP, gateway string, nameservers []string) error {
 	dir := filepath.Join(rootDir, "etc/fcvm")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	content := fmt.Sprintf("FCVM_GUEST_IP=%s\nFCVM_GATEWAY=%s\nFCVM_IFACE=eth0\n", guestIP, tapIP)
+	content := fmt.Sprintf("FCVM_GUEST_IP=%s\nFCVM_GATEWAY=%s\nFCVM_IFACE=eth0\nFCVM_NAMESERVERS=%q\n",
+		guestIP, gateway, strings.Join(nameservers, " "))
 	return os.WriteFile(filepath.Join(dir, "network"), []byte(content), 0o644)
 }
 
-func PatchMounted(mountPoint, ext4Path, sshPubKey string) error {
-	if out, err := exec.Command("mount", "-o", "loop", ext4Path, mountPoint).CombinedOutput(); err != nil {
-		return fmt.Errorf("mount ext4: %s: %w", out, err)
+// InjectEnv writes /etc/fcvm/env, which /etc/profile.d sources. Values are
+// single-quoted here rather than in shell so that quotes, backslashes and
+// command substitutions in a value survive intact.
+func InjectEnv(rootDir string, env map[string]string) error {
+	dir := filepath.Join(rootDir, "etc/fcvm")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
 	}
-	defer exec.Command("umount", mountPoint).Run()
+	return os.WriteFile(filepath.Join(dir, "env"), []byte(RenderEnv(env)), 0o644)
+}
+
+// RenderEnv formats env as sourceable shell assignments, sorted for stable output.
+func RenderEnv(env map[string]string) string {
+	keys := make([]string, 0, len(env))
+	for k := range env {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	for _, k := range keys {
+		fmt.Fprintf(&b, "export %s=%s\n", k, ShellQuote(env[k]))
+	}
+	return b.String()
+}
+
+// ShellQuote wraps s in single quotes so the shell treats it as a literal.
+func ShellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// MountRecord is one line of the guest mount table.
+type MountRecord struct {
+	Method string // nfs or block
+	Source string // "gateway:/export/path" or "/dev/vdb"
+	Guest  string
+}
+
+// RenderMounts formats the mount table read by fcvm-apply-mounts.sh.
+func RenderMounts(records []MountRecord) string {
+	var b strings.Builder
+	for _, r := range records {
+		fmt.Fprintf(&b, "%s\t%s\t%s\n", r.Method, r.Source, r.Guest)
+	}
+	return b.String()
+}
+
+// PatchOptions is everything the host bakes into a per-VM rootfs before boot.
+type PatchOptions struct {
+	SSHPubKey      string
+	Env            map[string]string
+	Nameservers    []string
+	GuestAgentPath string // host path to fcvm-guest-agent; empty skips agent inject
+	// StaticNetwork writes /etc/fcvm/network. Skipped in CNI mode, where the
+	// SDK configures the interface and the addresses are not known yet.
+	StaticNetwork bool
+	GuestIP       string
+	Gateway       string
+}
+
+// PatchMounted mounts an ext4 image, applies everything in opts, and unmounts
+// it. The unmount error is returned rather than dropped: callers commonly
+// remove the mount point afterwards, and doing that over a live mount deletes
+// the mount source instead.
+func PatchMounted(mountPoint, ext4Path string, opts PatchOptions) (err error) {
+	if out, mErr := exec.Command("mount", "-o", "loop", ext4Path, mountPoint).CombinedOutput(); mErr != nil {
+		return fmt.Errorf("mount ext4: %s: %w", out, mErr)
+	}
+	defer func() {
+		if out, uErr := exec.Command("umount", mountPoint).CombinedOutput(); uErr != nil && err == nil {
+			err = fmt.Errorf("umount %s: %s: %w", mountPoint, strings.TrimSpace(string(out)), uErr)
+		}
+	}()
 	if err := InjectHooks(mountPoint); err != nil {
 		return err
 	}
-	if sshPubKey != "" {
-		if err := InjectSSHKey(mountPoint, sshPubKey); err != nil {
+	if opts.GuestAgentPath != "" {
+		if err := InjectGuestAgent(mountPoint, opts.GuestAgentPath); err != nil {
+			return err
+		}
+	}
+	if opts.SSHPubKey != "" {
+		if err := InjectSSHKey(mountPoint, opts.SSHPubKey); err != nil {
+			return err
+		}
+	}
+	if len(opts.Env) > 0 {
+		if err := InjectEnv(mountPoint, opts.Env); err != nil {
+			return err
+		}
+	}
+	if opts.StaticNetwork {
+		if err := InjectNetwork(mountPoint, opts.GuestIP, opts.Gateway, opts.Nameservers); err != nil {
+			return err
+		}
+	} else if len(opts.Nameservers) > 0 {
+		// CNI: no addresses to write, but DNS still comes from the host config.
+		if err := InjectNetwork(mountPoint, "", "", opts.Nameservers); err != nil {
 			return err
 		}
 	}
