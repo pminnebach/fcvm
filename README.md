@@ -7,13 +7,21 @@ CLI for managing Firecracker microVM lifecycle on Linux: download Firecracker/ja
 ## Quick start
 
 ```bash
+curl -sSL https://raw.githubusercontent.com/pminnebach/fcvm/refs/heads/main/install.sh | bash
+sudo fcvm build-rootfs --dockerfile ./Dockerfile
+sudo fcvm start myvm
+sudo fcvm exec myvm -- uname -a
+sudo fcvm stop myvm
+```
+
+Or build from source:
+
+```bash
 go build -buildvcs=false -o fcvm .
 sudo ./fcvm download firecracker
 sudo ./fcvm download kernel
 sudo ./fcvm build-rootfs --dockerfile ./Dockerfile
 sudo ./fcvm start myvm
-sudo ./fcvm exec myvm -- uname -a
-sudo ./fcvm stop myvm
 ```
 
 See [docs/install.md](docs/install.md) for host dependencies, GoReleaser builds, and asset options.
