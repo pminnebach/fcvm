@@ -32,8 +32,12 @@ For nested virt (L1 guest hosting L2 Firecracker), rebuild the **L1** kernel wit
 Build and install the agent next to the configured path (default `~/.fcvm/bin/fcvm-guest-agent`) before starting with `--enable-vsock`:
 
 ```bash
+sudo ./fcvm download guest-agent --enable-experimental
+# or from source:
 go build -buildvcs=false -o ~/.fcvm/bin/fcvm-guest-agent ./guest/agent
 ```
+
+`download guest-agent` is **experimental**. By default it fetches the GitHub release matching this `fcvm` version (checksum verified). Pass `--url` for a custom binary.
 
 ## Static TAP (default)
 

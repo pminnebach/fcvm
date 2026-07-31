@@ -291,6 +291,110 @@ func SquashfsToExt4(squashfs, ext4Path, size string) error {
 	return rootfs.MakeExt4(root, ext4Path, size)
 }
 
+// normalizeGuestAgentVersion maps an fcvm version string to the GoReleaser
+// version (no v) and GitHub release tag (with v). Non-release builds (dev,
+// commit snapshots) cannot invent a tag and must use --url instead.
+func normalizeGuestAgentVersion(version string) (ver, tag string, err error) {
+	version = strings.TrimSpace(version)
+	if version == "" || version == "dev" {
+		return "", "", fmt.Errorf("fcvm version %q is not a release; pass --url to download a guest agent", version)
+	}
+	ver = strings.TrimPrefix(version, "v")
+	if len(ver) == 0 || ver[0] < '0' || ver[0] > '9' || !strings.Contains(ver, ".") {
+		return "", "", fmt.Errorf("fcvm version %q is not a release; pass --url to download a guest agent", version)
+	}
+	for _, c := range ver {
+		if (c >= '0' && c <= '9') || c == '.' || c == '-' || c == '+' ||
+			(c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') {
+			continue
+		}
+		return "", "", fmt.Errorf("fcvm version %q is not a release; pass --url to download a guest agent", version)
+	}
+	return ver, "v" + ver, nil
+}
+
+// DownloadGuestAgent fetches the fcvm GitHub release archive matching version,
+// verifies it against the published checksums file, and installs
+// fcvm-guest-agent to dest. These binaries are later injected into guests, so
+// an unverifiable download is a hard failure.
+func DownloadGuestAgent(ctx context.Context, version, dest string) error {
+	ver, tag, err := normalizeGuestAgentVersion(version)
+	if err != nil {
+		return err
+	}
+	prefix := fmt.Sprintf("https://github.com/pminnebach/fcvm/releases/download/%s/fcvm_%s", tag, ver)
+	return downloadGuestAgentRelease(ctx, prefix+"_linux_amd64.tar.gz", prefix+"_checksums.txt", dest)
+}
+
+func downloadGuestAgentRelease(ctx context.Context, archiveURL, checksumURL, dest string) error {
+	return downloadGuestAgentReleaseOpts(ctx, archiveURL, checksumURL, dest, FetchOptions{})
+}
+
+func downloadGuestAgentReleaseOpts(ctx context.Context, archiveURL, checksumURL, dest string, opts FetchOptions) error {
+	sum, err := fetchSHA256(ctx, checksumURL)
+	if err != nil {
+		return fmt.Errorf("guest-agent checksum unavailable, refusing to install unverified binary: %w", err)
+	}
+	tmpDir, err := os.MkdirTemp("", "fcvm-guest-agent-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmpDir)
+	tgz := filepath.Join(tmpDir, "release.tar.gz")
+	opts.SHA256 = sum
+	if err := DownloadFile(ctx, archiveURL, tgz, opts); err != nil {
+		return err
+	}
+	return extractGuestAgentTarball(tgz, dest)
+}
+
+func extractGuestAgentTarball(tgz, dest string) error {
+	f, err := os.Open(tgz)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		return err
+	}
+	defer gz.Close()
+	if err := EnsureDir(filepath.Dir(dest)); err != nil {
+		return err
+	}
+	tr := tar.NewReader(gz)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		if filepath.Base(hdr.Name) != "fcvm-guest-agent" || hdr.Typeflag == tar.TypeDir {
+			continue
+		}
+		out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+		if err != nil {
+			return err
+		}
+		if _, err := io.Copy(out, tr); err != nil {
+			out.Close()
+			return err
+		}
+		return out.Close()
+	}
+	return fmt.Errorf("fcvm-guest-agent not found in release archive")
+}
+
+// DownloadGuestAgentURL fetches a guest-agent binary from an arbitrary URL to dest.
+func DownloadGuestAgentURL(ctx context.Context, rawURL, dest string, opts FetchOptions) error {
+	if err := DownloadFile(ctx, rawURL, dest, opts); err != nil {
+		return err
+	}
+	return os.Chmod(dest, 0o755)
+}
+
 func DownloadJailerBuild(ctx context.Context, destDir string) error {
 	ver, err := LatestFirecrackerRelease(ctx)
 	if err != nil {

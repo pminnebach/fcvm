@@ -101,8 +101,9 @@ Tear down resources for one VM, or `--all` for every VM under the state dir. Bes
 | `jailer` | Same release, or `--build` via Firecracker `devtool` |
 | `kernel` | CI latest, or `--url` / `kernel-url` |
 | `rootfs` | `--url` required; `--size` sets the ext4 size when converting a squashfs |
+| `guest-agent` | Matching this fcvm version from GitHub releases → `guest-agent-bin` (**experimental**); optional `--url` for a direct binary |
 
-`kernel` and `rootfs` accept `--sha256 <hex>` to verify the download, and `--insecure` to allow a plain `http://` URL. Without a checksum they warn; a mismatch is a hard failure and leaves nothing on disk. The firecracker release is never installed unverified.
+`kernel`, `rootfs`, and `guest-agent` accept `--sha256 <hex>` to verify the download, and `--insecure` to allow a plain `http://` URL. Without a checksum they warn; a mismatch is a hard failure and leaves nothing on disk. The firecracker release and the default guest-agent release are never installed unverified.
 
 ## `fcvm build-rootfs`
 

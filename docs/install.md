@@ -44,6 +44,8 @@ Default paths under `~/.fcvm` (expanded from the real user home when using sudo)
 sudo ./fcvm download firecracker   # also installs jailer from the same release tarball
 sudo ./fcvm download kernel
 sudo ./fcvm download rootfs --url 'https://…'   # or build-rootfs
+# optional (experimental; needed for --enable-vsock):
+sudo ./fcvm download guest-agent --enable-experimental
 # optional:
 sudo ./fcvm build-rootfs --dockerfile ./Dockerfile
 ```
@@ -52,7 +54,7 @@ sudo ./fcvm build-rootfs --dockerfile ./Dockerfile
 
 ### Integrity
 
-The firecracker/jailer tarball is checked against the SHA-256 published with the release before anything is unpacked, and the download fails if that checksum is unavailable — these binaries are executed as root. Kernel and rootfs URLs are arbitrary, so pass `--sha256 <hex>` to verify them; without it fcvm warns. Plain `http://` URLs are refused unless you pass `--insecure`.
+The firecracker/jailer tarball is checked against the SHA-256 published with the release before anything is unpacked, and the download fails if that checksum is unavailable — these binaries are executed as root. The default `download guest-agent` path uses the same fail-closed checksum check against the fcvm release. Kernel and rootfs URLs (and `guest-agent --url`) are arbitrary, so pass `--sha256 <hex>` to verify them; without it fcvm warns. Plain `http://` URLs are refused unless you pass `--insecure`.
 
 ## Quick start
 

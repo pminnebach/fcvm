@@ -44,6 +44,13 @@ func TestExperimentalReasonsVsockExecCommand(t *testing.T) {
 	}
 }
 
+func TestExperimentalReasonsGuestAgentCommand(t *testing.T) {
+	reasons := experimentalReasons(&cobra.Command{Use: "guest-agent"}, config.Default())
+	if !containsReason(reasons, "command: guest-agent") {
+		t.Fatalf("reasons = %v, want command: guest-agent", reasons)
+	}
+}
+
 func TestConfirmExperimentalBypass(t *testing.T) {
 	c := config.Default()
 	c.EnableExperimental = true
@@ -108,8 +115,8 @@ func TestConfirmExperimentalNonTTYFile(t *testing.T) {
 
 func TestExperimentalItemsNonEmpty(t *testing.T) {
 	items := experimentalItems()
-	if len(items) < 4 {
-		t.Fatalf("items = %d, want at least 4", len(items))
+	if len(items) < 5 {
+		t.Fatalf("items = %d, want at least 5", len(items))
 	}
 }
 

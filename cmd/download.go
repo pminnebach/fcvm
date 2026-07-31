@@ -113,16 +113,42 @@ var downloadRootfsCmd = &cobra.Command{
 	},
 }
 
+var downloadGuestAgentCmd = &cobra.Command{
+	Use:   "guest-agent",
+	Short: "Download fcvm-guest-agent (experimental)",
+	Args:  cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		c, err := loadConfig()
+		if err != nil {
+			return err
+		}
+		url, _ := cmd.Flags().GetString("url")
+		if url != "" {
+			if err := assets.DownloadGuestAgentURL(cmd.Context(), url, c.GuestAgentBin, fetchOptions(cmd)); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "guest-agent downloaded from %s to %s\n", url, c.GuestAgentBin)
+			return nil
+		}
+		if err := assets.DownloadGuestAgent(cmd.Context(), version, c.GuestAgentBin); err != nil {
+			return err
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "downloaded guest-agent %s to %s (checksum verified)\n", version, c.GuestAgentBin)
+		return nil
+	},
+}
+
 func init() {
 	downloadJailerCmd.Flags().Bool("build", false, "build jailer from source via devtool")
 	downloadKernelCmd.Flags().String("url", "", "kernel download URL (default: kernel-url config or Firecracker CI latest)")
 	downloadRootfsCmd.Flags().String("url", "", "rootfs download URL")
 	downloadRootfsCmd.Flags().String("size", "", "ext4 size when converting a squashfs (default: sized from contents)")
 	_ = downloadRootfsCmd.MarkFlagRequired("url")
-	for _, c := range []*cobra.Command{downloadKernelCmd, downloadRootfsCmd} {
+	downloadGuestAgentCmd.Flags().String("url", "", "guest-agent binary URL (default: GitHub release matching this fcvm version)")
+	for _, c := range []*cobra.Command{downloadKernelCmd, downloadRootfsCmd, downloadGuestAgentCmd} {
 		c.Flags().String("sha256", "", "expected SHA-256 of the download")
 		c.Flags().Bool("insecure", false, "allow a plain http:// URL")
 	}
-	downloadCmd.AddCommand(downloadFirecrackerCmd, downloadJailerCmd, downloadKernelCmd, downloadRootfsCmd)
+	downloadCmd.AddCommand(downloadFirecrackerCmd, downloadJailerCmd, downloadKernelCmd, downloadRootfsCmd, downloadGuestAgentCmd)
 	rootCmd.AddCommand(downloadCmd)
 }

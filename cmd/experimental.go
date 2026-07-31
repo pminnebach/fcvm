@@ -30,6 +30,7 @@ type experimentalItem struct {
 func experimentalItems() []experimentalItem {
 	return []experimentalItem{
 		{Feature: "vsock", Kind: "command", Name: "vsock-exec", Note: "run a command in the guest over vsock"},
+		{Feature: "vsock", Kind: "command", Name: "guest-agent", Note: "download guest agent from GitHub releases"},
 		{Feature: "vsock", Kind: "flag", Name: "--enable-vsock", Note: "attach virtio-vsock and inject the guest agent"},
 		{Feature: "vsock", Kind: "flag", Name: "--guest-agent-bin", Note: "guest agent binary path (used with --enable-vsock)"},
 		{Feature: "cni", Kind: "flag", Name: "--cni-network", Note: "CNI networking instead of static TAP"},
@@ -40,6 +41,9 @@ func experimentalReasons(cmd *cobra.Command, c config.Config) []string {
 	var reasons []string
 	if cmd != nil && cmd.Name() == "vsock-exec" {
 		reasons = append(reasons, "command: vsock-exec")
+	}
+	if cmd != nil && cmd.Name() == "guest-agent" {
+		reasons = append(reasons, "command: guest-agent")
 	}
 	if c.EnableVsock {
 		reasons = append(reasons, "flag: --enable-vsock")
