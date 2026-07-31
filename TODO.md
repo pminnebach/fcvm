@@ -5,6 +5,7 @@
 - [ ] Interactive serial console via screen (see [plans/serial-console.md](plans/serial-console.md))
 - [ ] Expose unused Firecracker jailer isolation knobs (see [plans/jailer-isolation.md](plans/jailer-isolation.md))
 - [ ] Implement optional CNI networking (see [plans/cni-network.md](plans/cni-network.md))
+- [ ] Refuse TAP start when the guest /30 overlaps host addresses/routes (nested sandbox stay-alive; see [plans/host-subnet-collision.md](plans/host-subnet-collision.md))
 
 ### Follow-ups from the review
 
