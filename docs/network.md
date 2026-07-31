@@ -2,24 +2,34 @@
 
 fcvm supports two guest networking modes. Default is static TAP + MASQUERADE. Set `network.cni-network` (or `--cni-network`) to use CNI.
 
-Guest access after boot is SSH to the guest IP, or vsock via `fcvm vsock-exec`. Every VM gets a virtio-vsock device (guest CID 3, UDS `vsock.sock` in the jailer chroot).
+Guest access after boot is SSH to the guest IP. Optionally enable vsock (`--enable-vsock`) for `fcvm vsock-exec`.
 
 ## Vsock
 
-Firecracker maps guest `AF_VSOCK` to host `AF_UNIX` under the jail root (`<chroot>/vsock.sock`).
+Vsock is **opt-in**. Without `--enable-vsock` (or `enable-vsock: true`), the VM has no virtio-vsock device and no guest agent — use SSH only.
+
+```bash
+sudo ./fcvm start myvm --enable-vsock
+sudo ./fcvm vsock-exec myvm -- uname -a
+```
+
+When enabled, Firecracker maps guest `AF_VSOCK` to host `AF_UNIX` under the jail root (`<chroot>/vsock.sock`). Guest CID is 3; the UDS is `vsock.sock`.
 
 | Direction | Mechanism |
 |-----------|-----------|
 | Host → guest (commands) | Connect to `vsock.sock`, send `CONNECT 5252`, write a command line |
 | Guest → host (output) | Guest dials host CID 2 port 5253; Firecracker connects to `vsock.sock_5253` |
 
-The guest runs `fcvm-guest-agent` (injected at rootfs patch time, systemd). Host kernel needs `CONFIG_VHOST_VSOCK`; guest needs `/dev/vsock` (`CONFIG_VIRTIO_VSOCKETS`, present on Firecracker CI kernels).
+The guest runs `fcvm-guest-agent` (injected at rootfs patch time, systemd). Prerequisites:
 
-```bash
-sudo ./fcvm vsock-exec myvm -- uname -a
-```
+| Side | Need | Device |
+|------|------|--------|
+| Host (kernel that runs Firecracker) | `CONFIG_VHOST_VSOCK` | `/dev/vhost-vsock` |
+| Guest | `CONFIG_VIRTIO_VSOCKETS` | `/dev/vsock` (present on stock Firecracker CI kernels) |
 
-Build and install the agent next to the configured path (default `~/.fcvm/bin/fcvm-guest-agent`):
+For nested virt (L1 guest hosting L2 Firecracker), rebuild the **L1** kernel with `CONFIG_VHOST_VSOCK` — see [kernel.md](kernel.md#vsock-host-support-for-nested-guests).
+
+Build and install the agent next to the configured path (default `~/.fcvm/bin/fcvm-guest-agent`) before starting with `--enable-vsock`:
 
 ```bash
 go build -buildvcs=false -o ~/.fcvm/bin/fcvm-guest-agent ./guest/agent

@@ -88,12 +88,7 @@ func buildFirecrackerConfig(cfg config.Config, in machineBuildInput) firecracker
 		Drives:            drives,
 		MachineCfg:        machineCfg,
 		NetworkInterfaces: buildNetworkInterfaces(cfg, in),
-		VsockDevices: []firecracker.VsockDevice{{
-			ID:   vsock.DeviceID,
-			Path: vsock.UDSName,
-			CID:  vsock.GuestCID,
-		}},
-		MmdsVersion: firecracker.MMDSv2,
+		MmdsVersion:       firecracker.MMDSv2,
 		JailerCfg: &firecracker.JailerConfig{
 			JailerBinary:  cfg.JailerBin,
 			ExecFile:      cfg.FirecrackerBin,
@@ -110,6 +105,13 @@ func buildFirecrackerConfig(cfg config.Config, in machineBuildInput) firecracker
 				filepath.Base(cfg.Kernel),
 			),
 		},
+	}
+	if cfg.EnableVsock {
+		fcCfg.VsockDevices = []firecracker.VsockDevice{{
+			ID:   vsock.DeviceID,
+			Path: vsock.UDSName,
+			CID:  vsock.GuestCID,
+		}}
 	}
 	return fcCfg
 }

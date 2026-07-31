@@ -34,7 +34,7 @@ var vsockExecCmd = &cobra.Command{
 			return err
 		}
 		if state.VsockUDS == "" {
-			return fmt.Errorf("VM %q has no vsock device (restart it with a current fcvm)", id)
+			return fmt.Errorf("VM %q has no vsock device (restart with --enable-vsock)", id)
 		}
 		command := guest.RemoteCommand(cmdArgs)
 		timeout := time.Duration(c.WaitTimeoutSec) * time.Second

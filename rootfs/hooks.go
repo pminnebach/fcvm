@@ -296,7 +296,7 @@ type PatchOptions struct {
 	SSHPubKey      string
 	Env            map[string]string
 	Nameservers    []string
-	GuestAgentPath string // host path to fcvm-guest-agent; required
+	GuestAgentPath string // host path to fcvm-guest-agent; empty skips agent inject
 	// StaticNetwork writes /etc/fcvm/network. Skipped in CNI mode, where the
 	// SDK configures the interface and the addresses are not known yet.
 	StaticNetwork bool

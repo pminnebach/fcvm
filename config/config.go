@@ -73,6 +73,7 @@ type Config struct {
 	Mounts         []MountConfig     `mapstructure:"mounts"`
 	SSHKey         string            `mapstructure:"ssh-key"`
 	GuestAgentBin  string            `mapstructure:"guest-agent-bin"`
+	EnableVsock    bool              `mapstructure:"enable-vsock"`
 	WaitTimeoutSec int               `mapstructure:"wait-timeout"`
 	StopTimeoutSec int               `mapstructure:"stop-timeout"`
 	Verbose        bool              `mapstructure:"verbose"`

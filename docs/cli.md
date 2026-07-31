@@ -17,7 +17,8 @@ Global persistent flags (also bindable via config / `FCVM_*` env — see [config
 | `--vcpu-count` | `2` | vCPUs |
 | `--mem-size-mib` | `512` | Memory MiB |
 | `--ssh-key` | `~/.fcvm/id_ed25519` | SSH private key |
-| `--guest-agent-bin` | `~/.fcvm/bin/fcvm-guest-agent` | Guest vsock agent binary injected into rootfs |
+| `--enable-vsock` | `false` | Attach virtio-vsock and inject the guest agent |
+| `--guest-agent-bin` | `~/.fcvm/bin/fcvm-guest-agent` | Guest vsock agent binary (used when `--enable-vsock`) |
 | `--cni-network` | (empty) | CNI network name; empty = static TAP |
 | `--nameservers` | host resolvers | Guest DNS servers |
 | `--verbose` | `false` | Verbose logging |
@@ -66,9 +67,10 @@ sudo ./fcvm exec myvm -- uname -a
 
 ## `fcvm vsock-exec <id> -- <command…>`
 
-Run a command in the guest over vsock (split channel: command in, output back to this console). Requires the guest agent binary at `--guest-agent-bin` when the VM was started. See [network.md](network.md#vsock).
+Run a command in the guest over vsock (split channel: command in, output back to this console). The VM must have been started with `--enable-vsock` (and a guest agent at `--guest-agent-bin`). See [network.md](network.md#vsock).
 
 ```bash
+sudo ./fcvm start myvm --enable-vsock
 sudo ./fcvm vsock-exec myvm -- uname -a
 ```
 

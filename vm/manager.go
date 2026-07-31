@@ -132,19 +132,21 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 	if err := copyFile(m.cfg.Rootfs, rootfsCopy); err != nil {
 		return nil, fmt.Errorf("copy rootfs: %w", err)
 	}
-	agentPath, err := config.ResolveGuestAgent(m.cfg)
-	if err != nil {
-		_ = RemoveState(m.cfg.StateDir, id)
-		return nil, err
-	}
 	patchOpts := rootfs.PatchOptions{
-		SSHPubKey:      key.PublicKey,
-		Env:            m.cfg.Env,
-		Nameservers:    m.cfg.Network.Nameservers,
-		GuestAgentPath: agentPath,
-		StaticNetwork:  !useCNI,
-		GuestIP:        guestIP,
-		Gateway:        tapIP,
+		SSHPubKey:     key.PublicKey,
+		Env:           m.cfg.Env,
+		Nameservers:   m.cfg.Network.Nameservers,
+		StaticNetwork: !useCNI,
+		GuestIP:       guestIP,
+		Gateway:       tapIP,
+	}
+	if m.cfg.EnableVsock {
+		agentPath, err := config.ResolveGuestAgent(m.cfg)
+		if err != nil {
+			_ = RemoveState(m.cfg.StateDir, id)
+			return nil, err
+		}
+		patchOpts.GuestAgentPath = agentPath
 	}
 	if err := assets.PatchExt4(rootfsCopy, patchOpts); err != nil {
 		_ = RemoveState(m.cfg.StateDir, id)
@@ -315,13 +317,15 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 		SSHKey:      key.PrivateKeyPath,
 		ChrootDir:   chrootDir,
 		LogPath:     filepath.Join(chrootDir, fcCfg.LogPath),
-		VsockUDS:    filepath.Join(chrootDir, vsock.UDSName),
-		VsockCID:    vsock.GuestCID,
 		JailerUID:   uid,
 		JailerGID:   gid,
 		StartedAt:   time.Now(),
 		Mounts:      mountStates,
 		Env:         m.cfg.Env,
+	}
+	if m.cfg.EnableVsock {
+		state.VsockUDS = filepath.Join(chrootDir, vsock.UDSName)
+		state.VsockCID = vsock.GuestCID
 	}
 	if err := SaveState(m.cfg.StateDir, state); err != nil {
 		return stopAndFail(err)

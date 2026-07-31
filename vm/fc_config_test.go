@@ -65,6 +65,30 @@ func TestBuildFirecrackerConfigDefaults(t *testing.T) {
 	if fc.MachineCfg.CPUTemplate != "" {
 		t.Fatalf("CPUTemplate = %q, want empty", fc.MachineCfg.CPUTemplate)
 	}
+	if len(fc.VsockDevices) != 0 {
+		t.Fatalf("VsockDevices = %+v, want none when enable-vsock is false", fc.VsockDevices)
+	}
+}
+
+func TestBuildFirecrackerConfigVsockEnabled(t *testing.T) {
+	cfg := config.Default()
+	cfg.Kernel = "/tmp/vmlinux"
+	cfg.FirecrackerBin = "/tmp/firecracker"
+	cfg.JailerBin = "/tmp/jailer"
+	cfg.Jailer.ChrootBaseDir = "/tmp/jailer-base"
+	cfg.EnableVsock = true
+
+	fc := buildFirecrackerConfig(cfg, machineBuildInput{
+		ID:         "vm-1",
+		RootfsPath: "/tmp/rootfs.ext4",
+		TapDev:     "fcvm-tap-0",
+		TapIP:      "172.16.0.1",
+		GuestIP:    "172.16.0.2",
+		GuestMAC:   "02:FC:00:00:00:02",
+		JailerUID:  1000,
+		JailerGID:  1000,
+	})
+
 	if len(fc.VsockDevices) != 1 {
 		t.Fatalf("VsockDevices = %+v", fc.VsockDevices)
 	}
