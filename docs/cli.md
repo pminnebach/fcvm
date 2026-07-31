@@ -17,15 +17,18 @@ Global persistent flags (also bindable via config / `FCVM_*` env — see [config
 | `--vcpu-count` | `2` | vCPUs |
 | `--mem-size-mib` | `512` | Memory MiB |
 | `--ssh-key` | `~/.fcvm/id_ed25519` | SSH private key |
-| `--enable-vsock` | `false` | Attach virtio-vsock and inject the guest agent |
-| `--guest-agent-bin` | `~/.fcvm/bin/fcvm-guest-agent` | Guest vsock agent binary (used when `--enable-vsock`) |
-| `--cni-network` | (empty) | CNI network name; empty = static TAP |
+| `--enable-experimental` | `false` | Skip confirmation for experimental commands/flags |
+| `--enable-vsock` | `false` | Attach virtio-vsock and inject the guest agent (**experimental**) |
+| `--guest-agent-bin` | `~/.fcvm/bin/fcvm-guest-agent` | Guest vsock agent binary (used when `--enable-vsock`) (**experimental**) |
+| `--cni-network` | (empty) | CNI network name; empty = static TAP (**experimental**) |
 | `--nameservers` | host resolvers | Guest DNS servers |
 | `--verbose` | `false` | Verbose logging |
 | `--wait-timeout` | `120` | Seconds to wait for guest SSH |
 | `--stop-timeout` | `5` | Seconds to wait for a VM to exit before SIGKILL |
 
 Most operational commands require **root**. Runtime errors print a single line; usage is shown only for flag and argument mistakes. Ctrl+C cancels an in-progress command, including the SSH wait during `start` and any download.
+
+Using an experimental command or flag prompts for confirmation unless you pass `--enable-experimental` (or set `enable-experimental` / `FCVM_ENABLE_EXPERIMENTAL`). See `fcvm experimental` for the full list. Non-interactive runs must use the bypass flag.
 
 VM ids must be a single path component of letters, digits, `-`, `_` and `.`, at most 64 characters.
 
@@ -67,12 +70,16 @@ sudo ./fcvm exec myvm -- uname -a
 
 ## `fcvm vsock-exec <id> -- <command…>`
 
-Run a command in the guest over vsock (split channel: command in, output back to this console). The VM must have been started with `--enable-vsock` (and a guest agent at `--guest-agent-bin`). See [network.md](network.md#vsock).
+Run a command in the guest over vsock (split channel: command in, output back to this console). **Experimental.** The VM must have been started with `--enable-vsock` (and a guest agent at `--guest-agent-bin`). See [network.md](network.md#vsock).
 
 ```bash
-sudo ./fcvm start myvm --enable-vsock
-sudo ./fcvm vsock-exec myvm -- uname -a
+sudo ./fcvm start myvm --enable-vsock --enable-experimental
+sudo ./fcvm vsock-exec myvm --enable-experimental -- uname -a
 ```
+
+## `fcvm experimental`
+
+List experimental commands and flags. No confirmation prompt.
 
 ## `fcvm shell <id>`
 

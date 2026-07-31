@@ -50,8 +50,9 @@ env: {}
 | `kernel-args` | `console=ttyS0 reboot=k panic=1 net.ifnames=0 biosdevname=0` | Guest cmdline |
 | `rootfs` | `~/.fcvm/images/rootfs.ext4` | Template ext4 |
 | `ssh-key` | `~/.fcvm/id_ed25519` | Created if missing |
-| `enable-vsock` | `false` | Attach virtio-vsock and inject guest agent on start |
-| `guest-agent-bin` | `~/.fcvm/bin/fcvm-guest-agent` | Used only when `enable-vsock` is true |
+| `enable-experimental` | `false` | Skip confirmation for experimental commands/flags |
+| `enable-vsock` | `false` | Attach virtio-vsock and inject guest agent on start (**experimental**) |
+| `guest-agent-bin` | `~/.fcvm/bin/fcvm-guest-agent` | Used only when `enable-vsock` is true (**experimental**) |
 
 ### Machine
 
@@ -72,7 +73,7 @@ env: {}
 |-----|---------|-------|
 | `network.tap-ip` | `172.16.0.1` | Host side of /30 (TAP mode) |
 | `network.guest-ip` | `172.16.0.2` | Guest side of /30 (TAP mode) |
-| `network.cni-network` | (empty) | CNI conflist `name`; empty = TAP |
+| `network.cni-network` | (empty) | CNI conflist `name`; empty = TAP (**experimental**) |
 | `network.nameservers` | host resolvers | Guest DNS; read from the host `/etc/resolv.conf` (loopback entries skipped), falling back to `8.8.8.8` |
 
 See [network.md](network.md).

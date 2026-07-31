@@ -14,7 +14,7 @@ import (
 
 var vsockExecCmd = &cobra.Command{
 	Use:   "vsock-exec <id> -- command...",
-	Short: "Run a command inside a microVM via vsock",
+	Short: "Run a command inside a microVM via vsock (experimental)",
 	Args:  cobra.MinimumNArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		c, err := loadConfig()

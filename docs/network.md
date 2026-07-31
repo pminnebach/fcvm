@@ -1,8 +1,8 @@
 # Networking
 
-fcvm supports two guest networking modes. Default is static TAP + MASQUERADE. Set `network.cni-network` (or `--cni-network`) to use CNI.
+fcvm supports two guest networking modes. Default is static TAP + MASQUERADE. Set `network.cni-network` (or `--cni-network`) to use CNI (**experimental**).
 
-Guest access after boot is SSH to the guest IP. Optionally enable vsock (`--enable-vsock`) for `fcvm vsock-exec`.
+Guest access after boot is SSH to the guest IP. Optionally enable vsock (`--enable-vsock`) for `fcvm vsock-exec` (**experimental**; prompts unless `--enable-experimental`).
 
 ## Vsock
 

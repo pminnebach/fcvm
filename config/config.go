@@ -55,28 +55,29 @@ func (m MountConfig) ResolvedMethod() string {
 }
 
 type Config struct {
-	StateDir       string            `mapstructure:"state-dir"`
-	FirecrackerBin string            `mapstructure:"firecracker-bin"`
-	JailerBin      string            `mapstructure:"jailer-bin"`
-	Jailer         JailerConfig      `mapstructure:"jailer"`
-	Kernel         string            `mapstructure:"kernel"`
-	KernelURL      string            `mapstructure:"kernel-url"`
-	KernelArgs     string            `mapstructure:"kernel-args"`
-	Rootfs         string            `mapstructure:"rootfs"`
-	LogLevel       string            `mapstructure:"log-level"`
-	CPUTemplate    string            `mapstructure:"cpu-template"`
-	DisableSMT     bool              `mapstructure:"disable-smt"`
-	VCPUCount      int64             `mapstructure:"vcpu-count"`
-	MemSizeMib     int64             `mapstructure:"mem-size-mib"`
-	Network        NetworkConfig     `mapstructure:"network"`
-	Env            map[string]string `mapstructure:"env"`
-	Mounts         []MountConfig     `mapstructure:"mounts"`
-	SSHKey         string            `mapstructure:"ssh-key"`
-	GuestAgentBin  string            `mapstructure:"guest-agent-bin"`
-	EnableVsock    bool              `mapstructure:"enable-vsock"`
-	WaitTimeoutSec int               `mapstructure:"wait-timeout"`
-	StopTimeoutSec int               `mapstructure:"stop-timeout"`
-	Verbose        bool              `mapstructure:"verbose"`
+	StateDir           string            `mapstructure:"state-dir"`
+	FirecrackerBin     string            `mapstructure:"firecracker-bin"`
+	JailerBin          string            `mapstructure:"jailer-bin"`
+	Jailer             JailerConfig      `mapstructure:"jailer"`
+	Kernel             string            `mapstructure:"kernel"`
+	KernelURL          string            `mapstructure:"kernel-url"`
+	KernelArgs         string            `mapstructure:"kernel-args"`
+	Rootfs             string            `mapstructure:"rootfs"`
+	LogLevel           string            `mapstructure:"log-level"`
+	CPUTemplate        string            `mapstructure:"cpu-template"`
+	DisableSMT         bool              `mapstructure:"disable-smt"`
+	VCPUCount          int64             `mapstructure:"vcpu-count"`
+	MemSizeMib         int64             `mapstructure:"mem-size-mib"`
+	Network            NetworkConfig     `mapstructure:"network"`
+	Env                map[string]string `mapstructure:"env"`
+	Mounts             []MountConfig     `mapstructure:"mounts"`
+	SSHKey             string            `mapstructure:"ssh-key"`
+	GuestAgentBin      string            `mapstructure:"guest-agent-bin"`
+	EnableVsock        bool              `mapstructure:"enable-vsock"`
+	EnableExperimental bool              `mapstructure:"enable-experimental"`
+	WaitTimeoutSec     int               `mapstructure:"wait-timeout"`
+	StopTimeoutSec     int               `mapstructure:"stop-timeout"`
+	Verbose            bool              `mapstructure:"verbose"`
 }
 
 func UserHomeDir() (string, error) {

@@ -52,9 +52,10 @@ func init() {
 	rootCmd.PersistentFlags().Int64("vcpu-count", defaults.VCPUCount, "vCPUs per VM")
 	rootCmd.PersistentFlags().Int64("mem-size-mib", defaults.MemSizeMib, "memory MiB per VM")
 	rootCmd.PersistentFlags().String("ssh-key", defaults.SSHKey, "SSH private key path")
-	rootCmd.PersistentFlags().String("guest-agent-bin", defaults.GuestAgentBin, "guest vsock agent binary to inject into rootfs (when --enable-vsock)")
-	rootCmd.PersistentFlags().Bool("enable-vsock", false, "attach virtio-vsock and inject the guest agent")
-	rootCmd.PersistentFlags().String("cni-network", defaults.Network.CNINetwork, "CNI network name (empty = static TAP)")
+	rootCmd.PersistentFlags().String("guest-agent-bin", defaults.GuestAgentBin, "guest vsock agent binary to inject into rootfs (when --enable-vsock) (experimental)")
+	rootCmd.PersistentFlags().Bool("enable-vsock", false, "attach virtio-vsock and inject the guest agent (experimental)")
+	rootCmd.PersistentFlags().String("cni-network", defaults.Network.CNINetwork, "CNI network name (empty = static TAP) (experimental)")
+	rootCmd.PersistentFlags().Bool("enable-experimental", false, "skip confirmation for experimental commands and flags")
 	rootCmd.PersistentFlags().Bool("verbose", false, "verbose logging")
 	rootCmd.PersistentFlags().Int("wait-timeout", defaults.WaitTimeoutSec, "seconds to wait for guest SSH")
 	rootCmd.PersistentFlags().Int("stop-timeout", defaults.StopTimeoutSec, "seconds to wait for a VM to exit before SIGKILL")
@@ -75,6 +76,7 @@ func init() {
 	_ = viper.BindPFlag("guest-agent-bin", rootCmd.PersistentFlags().Lookup("guest-agent-bin"))
 	_ = viper.BindPFlag("enable-vsock", rootCmd.PersistentFlags().Lookup("enable-vsock"))
 	_ = viper.BindPFlag("network.cni-network", rootCmd.PersistentFlags().Lookup("cni-network"))
+	_ = viper.BindPFlag("enable-experimental", rootCmd.PersistentFlags().Lookup("enable-experimental"))
 	_ = viper.BindPFlag("verbose", rootCmd.PersistentFlags().Lookup("verbose"))
 	_ = viper.BindPFlag("wait-timeout", rootCmd.PersistentFlags().Lookup("wait-timeout"))
 	_ = viper.BindPFlag("stop-timeout", rootCmd.PersistentFlags().Lookup("stop-timeout"))
@@ -83,6 +85,18 @@ func init() {
 	viper.SetEnvPrefix("FCVM")
 	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
 	viper.AutomaticEnv()
+
+	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+		switch cmd.Name() {
+		case "experimental", "version", "help", "completion":
+			return nil
+		}
+		c, err := loadConfig()
+		if err != nil {
+			return err
+		}
+		return confirmExperimental(cmd, c, experimentalReasons(cmd, c))
+	}
 }
 
 func initConfig() {
@@ -109,6 +123,7 @@ func initConfig() {
 	viper.SetDefault("ssh-key", defaults.SSHKey)
 	viper.SetDefault("guest-agent-bin", defaults.GuestAgentBin)
 	viper.SetDefault("enable-vsock", defaults.EnableVsock)
+	viper.SetDefault("enable-experimental", defaults.EnableExperimental)
 	viper.SetDefault("wait-timeout", defaults.WaitTimeoutSec)
 	viper.SetDefault("stop-timeout", defaults.StopTimeoutSec)
 	viper.SetDefault("network.tap-ip", defaults.Network.TapIP)
