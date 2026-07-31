@@ -45,7 +45,7 @@ network:
 
 Defaults stay backward-compatible: unset new fields behave as today.
 
-**Daemonize (phase 1):** confirm PID tracking still works (`machine.PID()` / `firecracker.pid` in jail root) before enabling by default — leave default `false`.
+**Daemonize (phase 1):** done — Start prefers `firecracker.pid` under the jail root (fallback `machine.PID()`). Default stays `false`; do not flip default until operators want it. Incompatible with planned serial console ([serial-console.md](serial-console.md)).
 
 CNI / netns start-stop details: [cni-network.md](cni-network.md).
 
@@ -53,10 +53,11 @@ CNI / netns start-stop details: [cni-network.md](cni-network.md).
 
 ### Phase 1 — SDK-exposed jailer knobs
 
-- [ ] Add `numa-node`, `daemonize`, `parent-cgroup`, `cgroup` to `config.JailerConfig` + viper defaults / example yaml.
-- [ ] Wire into `JailerCfg` in `vm/manager.go` (replace hardcoded `numa := 0`).
-- [ ] Unit test: config unmarshaling; optional assert that `JailerCfg` fields are set when starting with a fake/mocked path if practical.
-- [ ] Docs: short note in [docs/network.md](../docs/network.md) or a jailer subsection in README — only what phase 1 exposes.
+- [x] Add `numa-node`, `daemonize`, `parent-cgroup`, `cgroup` to `config.JailerConfig` + viper defaults / example yaml.
+- [x] Wire into `JailerCfg` via `vm/fc_config.go` (builder).
+- [x] Unit test: config unmarshaling; builder sets `JailerCfg` fields including daemonize.
+- [x] PID tracking with daemonize: read `firecracker.pid` in Start (not jailer parent from `machine.PID()`).
+- [x] Docs: configuration + architecture note what phase 1 exposes.
 
 ### Phase 2 — Netns / CNI + per-VM credentials
 

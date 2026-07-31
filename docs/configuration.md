@@ -83,7 +83,7 @@ See [network.md](network.md).
 | `jailer.uid` / `jailer.gid` | `1000` | |
 | `jailer.per-vm-uids` | `false` | uid/gid = base + VM index |
 | `jailer.numa-node` | `0` | |
-| `jailer.daemonize` | `false` | |
+| `jailer.daemonize` | `false` | Jailer `setsid` + stdio → `/dev/null`. fcvm tracks the VM via `firecracker.pid` under the jail root (required when daemonize is on). Leave `false` unless you want that; incompatible with the planned `fcvm console` attach path. |
 | `jailer.parent-cgroup` | (empty) | |
 | `jailer.cgroup` | (empty list) | e.g. `memory.max=1G` |
 

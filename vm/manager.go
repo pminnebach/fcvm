@@ -257,15 +257,25 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 		m.log.Warnf("set MMDS metadata: %v", metaErr)
 	}
 
-	pid, _ := machine.PID()
+	chrootDir := filepath.Join(m.cfg.Jailer.ChrootBaseDir, "firecracker", id, "root")
+	// Prefer the jailer's firecracker.pid: with --daemonize the process
+	// Machine.PID() returns is the exiting parent, not Firecracker.
+	pid, err := readJailerPIDFile(chrootDir, m.cfg.FirecrackerBin)
+	if err != nil {
+		fallback, pidErr := machine.PID()
+		if pidErr != nil {
+			m.log.Warnf("firecracker pid file: %v; machine.PID: %v", err, pidErr)
+		} else {
+			m.log.Warnf("read firecracker.pid: %v; falling back to machine.PID %d", err, fallback)
+			pid = fallback
+		}
+	}
 	pidStart, err := procStartTime(pid)
 	if err != nil {
 		// Without it, IsRunning falls back to PID-only liveness, which cannot
 		// tell this VM from a process that later reuses its PID.
 		m.log.Warnf("record start time for pid %d: %v; stop will rely on the PID alone", pid, err)
 	}
-
-	chrootDir := filepath.Join(m.cfg.Jailer.ChrootBaseDir, "firecracker", id, "root")
 
 	netMode := NetworkModeTAP
 	cniName := ""

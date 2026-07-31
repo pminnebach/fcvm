@@ -91,6 +91,26 @@ func indexFromTapDev(dev string) (int, bool) {
 	return network.IndexFromTapDev(dev)
 }
 
+// readJailerPIDFile reads the Firecracker PID the jailer writes under the jail
+// root (<exec_file_name>.pid). With --daemonize the jailer parent exits after
+// double-fork, so Machine.PID() is the wrong process; the jailer docs say to
+// use this file in all cases.
+func readJailerPIDFile(chrootDir, execFile string) (int, error) {
+	path := filepath.Join(chrootDir, filepath.Base(execFile)+".pid")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, err
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		return 0, fmt.Errorf("parse %s: %w", path, err)
+	}
+	if pid <= 0 {
+		return 0, fmt.Errorf("invalid pid %d in %s", pid, path)
+	}
+	return pid, nil
+}
+
 // procStartTime reads field 22 of /proc/<pid>/stat, the process start time in
 // clock ticks since boot. Together with the PID it identifies a process
 // uniquely for as long as the host is up.

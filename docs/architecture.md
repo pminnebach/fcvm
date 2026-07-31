@@ -110,7 +110,7 @@ Host control plane after boot is **SSH** over the guest IP (`fcvm exec` / `fcvm 
 
 Every VM uses Firecracker’s jailer with a chroot under `jailer.chroot-base-dir` (default `~/.fcvm/jailer`). Credentials default to uid/gid `1000`. With `jailer.per-vm-uids: true`, uid/gid become `base + index` (ensure those accounts exist on the host).
 
-Optional jailer knobs: NUMA node, daemonize, parent cgroup, and cgroup resource strings (see [configuration.md](configuration.md)).
+Optional jailer knobs: NUMA node, daemonize, parent cgroup, and cgroup resource strings (see [configuration.md](configuration.md)). Start records the Firecracker PID from `firecracker.pid` in the jail root so stop/list stay correct when `jailer.daemonize` is true.
 
 ## Related docs
 
