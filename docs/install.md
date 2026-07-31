@@ -3,7 +3,7 @@
 ## Quick install
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/pminnebach/fcvm/refs/heads/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/pminnebach/fcvm/refs/heads/main/install.sh | sudo bash
 ```
 
 Installs the latest `fcvm` release to `/usr/local/bin`, downloads Firecracker, jailer, and the default kernel into `~/.fcvm`, and prints a dependency status table. Does not build a rootfs — use `fcvm build-rootfs` after Docker is available.

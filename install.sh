@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Install the latest fcvm release and download Firecracker, jailer, and kernel.
 # Usage:
-#   curl -sSL https://raw.githubusercontent.com/pminnebach/fcvm/refs/heads/main/install.sh | bash
+#   curl -sSL https://raw.githubusercontent.com/pminnebach/fcvm/refs/heads/main/install.sh | sudo bash
 set -euo pipefail
 
 REPO="pminnebach/fcvm"
