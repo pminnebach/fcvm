@@ -32,3 +32,11 @@ jobs:
 
       - name: build
         run: go build -buildvcs=false -o fcvm .
+
+      - name: build guest-agent
+        run: go build -buildvcs=false -o fcvm-guest-agent ./guest/agent
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --snapshot --clean --skip=publish
