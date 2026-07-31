@@ -215,9 +215,11 @@ func InjectSSHKey(rootDir, pubKey string) error {
 	if err := os.Chmod(authKeys, 0o600); err != nil {
 		return err
 	}
-	for _, p := range []string{rootHome, dir, authKeys} {
-		if err := os.Chown(p, 0, 0); err != nil {
-			return err
+	if os.Geteuid() == 0 {
+		for _, p := range []string{rootHome, dir, authKeys} {
+			if err := os.Chown(p, 0, 0); err != nil {
+				return err
+			}
 		}
 	}
 	return injectSSHConfig(rootDir)
