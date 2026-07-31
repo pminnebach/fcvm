@@ -50,6 +50,7 @@ env: {}
 | `kernel-args` | `console=ttyS0 reboot=k panic=1 net.ifnames=0 biosdevname=0` | Guest cmdline |
 | `rootfs` | `~/.fcvm/images/rootfs.ext4` | Template ext4 |
 | `ssh-key` | `~/.fcvm/id_ed25519` | Created if missing |
+| `guest-agent-bin` | `~/.fcvm/bin/fcvm-guest-agent` | Injected into each VM rootfs for vsock-exec |
 
 ### Machine
 

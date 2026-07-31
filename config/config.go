@@ -72,6 +72,7 @@ type Config struct {
 	Env            map[string]string `mapstructure:"env"`
 	Mounts         []MountConfig     `mapstructure:"mounts"`
 	SSHKey         string            `mapstructure:"ssh-key"`
+	GuestAgentBin  string            `mapstructure:"guest-agent-bin"`
 	WaitTimeoutSec int               `mapstructure:"wait-timeout"`
 	StopTimeoutSec int               `mapstructure:"stop-timeout"`
 	Verbose        bool              `mapstructure:"verbose"`
@@ -126,6 +127,7 @@ func Default() Config {
 		WaitTimeoutSec: 120,
 		StopTimeoutSec: 5,
 		SSHKey:         filepath.Join(state, "id_ed25519"),
+		GuestAgentBin:  filepath.Join(state, "bin", "fcvm-guest-agent"),
 		Network: NetworkConfig{
 			TapIP:       "172.16.0.1",
 			GuestIP:     "172.16.0.2",

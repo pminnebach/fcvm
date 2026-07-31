@@ -33,5 +33,6 @@ env: {}
 #     method: auto       # auto (= nfs), nfs, or block
 #     size: ""           # block only; empty sizes from the source tree
 ssh-key: ~/.fcvm/id_ed25519
+# guest-agent-bin: ~/.fcvm/bin/fcvm-guest-agent
 wait-timeout: 120
 # stop-timeout: 5        # seconds to wait for a VM to exit before SIGKILL

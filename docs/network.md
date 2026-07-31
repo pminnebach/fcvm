@@ -2,7 +2,28 @@
 
 fcvm supports two guest networking modes. Default is static TAP + MASQUERADE. Set `network.cni-network` (or `--cni-network`) to use CNI.
 
-Guest access after boot is SSH to the guest IP. There is no vsock or Linux bridge mode in fcvm today.
+Guest access after boot is SSH to the guest IP, or vsock via `fcvm vsock-exec`. Every VM gets a virtio-vsock device (guest CID 3, UDS `vsock.sock` in the jailer chroot).
+
+## Vsock
+
+Firecracker maps guest `AF_VSOCK` to host `AF_UNIX` under the jail root (`<chroot>/vsock.sock`).
+
+| Direction | Mechanism |
+|-----------|-----------|
+| Host → guest (commands) | Connect to `vsock.sock`, send `CONNECT 5252`, write a command line |
+| Guest → host (output) | Guest dials host CID 2 port 5253; Firecracker connects to `vsock.sock_5253` |
+
+The guest runs `fcvm-guest-agent` (injected at rootfs patch time, systemd). Host kernel needs `CONFIG_VHOST_VSOCK`; guest needs `/dev/vsock` (`CONFIG_VIRTIO_VSOCKETS`, present on Firecracker CI kernels).
+
+```bash
+sudo ./fcvm vsock-exec myvm -- uname -a
+```
+
+Build and install the agent next to the configured path (default `~/.fcvm/bin/fcvm-guest-agent`):
+
+```bash
+go build -buildvcs=false -o ~/.fcvm/bin/fcvm-guest-agent ./guest/agent
+```
 
 ## Static TAP (default)
 

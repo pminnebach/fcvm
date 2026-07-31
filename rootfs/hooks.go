@@ -105,6 +105,20 @@ RemainAfterExit=yes
 WantedBy=multi-user.target
 `
 
+const guestAgentUnit = `[Unit]
+Description=fcvm guest vsock agent
+After=network.target
+DefaultDependencies=yes
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/fcvm-guest-agent
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+`
+
 func InjectHooks(rootDir string) error {
 	files := map[string]string{
 		"usr/local/bin/fcvm-mmds.sh":         mmdsHelpers,
@@ -144,6 +158,39 @@ func InjectHooks(rootDir string) error {
 exit 0
 `
 	return os.WriteFile(rc, []byte(rcContent), 0o755)
+}
+
+// InjectGuestAgent copies the host-built agent binary into the rootfs and
+// enables a long-running systemd unit that listens on vsock.
+func InjectGuestAgent(rootDir, agentPath string) error {
+	if agentPath == "" {
+		return fmt.Errorf("guest agent binary path is empty")
+	}
+	data, err := os.ReadFile(agentPath)
+	if err != nil {
+		return fmt.Errorf("read guest agent %q: %w", agentPath, err)
+	}
+	dest := filepath.Join(rootDir, "usr/local/bin/fcvm-guest-agent")
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(dest, data, 0o755); err != nil {
+		return err
+	}
+	unitDir := filepath.Join(rootDir, "etc/systemd/system")
+	if err := os.MkdirAll(unitDir, 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(unitDir, "fcvm-guest-agent.service"), []byte(guestAgentUnit), 0o644); err != nil {
+		return err
+	}
+	wantDir := filepath.Join(rootDir, "etc/systemd/system/multi-user.target.wants")
+	if err := os.MkdirAll(wantDir, 0o755); err != nil {
+		return err
+	}
+	link := filepath.Join(wantDir, "fcvm-guest-agent.service")
+	_ = os.Remove(link)
+	return os.Symlink("../fcvm-guest-agent.service", link)
 }
 
 func InjectSSHKey(rootDir, pubKey string) error {
@@ -246,9 +293,10 @@ func RenderMounts(records []MountRecord) string {
 
 // PatchOptions is everything the host bakes into a per-VM rootfs before boot.
 type PatchOptions struct {
-	SSHPubKey   string
-	Env         map[string]string
-	Nameservers []string
+	SSHPubKey      string
+	Env            map[string]string
+	Nameservers    []string
+	GuestAgentPath string // host path to fcvm-guest-agent; required
 	// StaticNetwork writes /etc/fcvm/network. Skipped in CNI mode, where the
 	// SDK configures the interface and the addresses are not known yet.
 	StaticNetwork bool
@@ -271,6 +319,11 @@ func PatchMounted(mountPoint, ext4Path string, opts PatchOptions) (err error) {
 	}()
 	if err := InjectHooks(mountPoint); err != nil {
 		return err
+	}
+	if opts.GuestAgentPath != "" {
+		if err := InjectGuestAgent(mountPoint, opts.GuestAgentPath); err != nil {
+			return err
+		}
 	}
 	if opts.SSHPubKey != "" {
 		if err := InjectSSHKey(mountPoint, opts.SSHPubKey); err != nil {

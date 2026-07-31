@@ -52,6 +52,7 @@ func init() {
 	rootCmd.PersistentFlags().Int64("vcpu-count", defaults.VCPUCount, "vCPUs per VM")
 	rootCmd.PersistentFlags().Int64("mem-size-mib", defaults.MemSizeMib, "memory MiB per VM")
 	rootCmd.PersistentFlags().String("ssh-key", defaults.SSHKey, "SSH private key path")
+	rootCmd.PersistentFlags().String("guest-agent-bin", defaults.GuestAgentBin, "guest vsock agent binary to inject into rootfs")
 	rootCmd.PersistentFlags().String("cni-network", defaults.Network.CNINetwork, "CNI network name (empty = static TAP)")
 	rootCmd.PersistentFlags().Bool("verbose", false, "verbose logging")
 	rootCmd.PersistentFlags().Int("wait-timeout", defaults.WaitTimeoutSec, "seconds to wait for guest SSH")
@@ -70,6 +71,7 @@ func init() {
 	_ = viper.BindPFlag("vcpu-count", rootCmd.PersistentFlags().Lookup("vcpu-count"))
 	_ = viper.BindPFlag("mem-size-mib", rootCmd.PersistentFlags().Lookup("mem-size-mib"))
 	_ = viper.BindPFlag("ssh-key", rootCmd.PersistentFlags().Lookup("ssh-key"))
+	_ = viper.BindPFlag("guest-agent-bin", rootCmd.PersistentFlags().Lookup("guest-agent-bin"))
 	_ = viper.BindPFlag("network.cni-network", rootCmd.PersistentFlags().Lookup("cni-network"))
 	_ = viper.BindPFlag("verbose", rootCmd.PersistentFlags().Lookup("verbose"))
 	_ = viper.BindPFlag("wait-timeout", rootCmd.PersistentFlags().Lookup("wait-timeout"))
@@ -103,6 +105,7 @@ func initConfig() {
 	viper.SetDefault("vcpu-count", defaults.VCPUCount)
 	viper.SetDefault("mem-size-mib", defaults.MemSizeMib)
 	viper.SetDefault("ssh-key", defaults.SSHKey)
+	viper.SetDefault("guest-agent-bin", defaults.GuestAgentBin)
 	viper.SetDefault("wait-timeout", defaults.WaitTimeoutSec)
 	viper.SetDefault("stop-timeout", defaults.StopTimeoutSec)
 	viper.SetDefault("network.tap-ip", defaults.Network.TapIP)
@@ -139,6 +142,7 @@ func loadConfig() (config.Config, error) {
 	c.Kernel = config.ExpandPath(c.Kernel)
 	c.Rootfs = config.ExpandPath(c.Rootfs)
 	c.SSHKey = config.ExpandPath(c.SSHKey)
+	c.GuestAgentBin = config.ExpandPath(c.GuestAgentBin)
 	return c, nil
 }
 

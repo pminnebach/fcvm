@@ -21,6 +21,7 @@ import (
 	"github.com/pminnebach/fcvm/guest"
 	"github.com/pminnebach/fcvm/network"
 	"github.com/pminnebach/fcvm/rootfs"
+	"github.com/pminnebach/fcvm/vsock"
 )
 
 type Manager struct {
@@ -123,13 +124,19 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 	if err := copyFile(m.cfg.Rootfs, rootfsCopy); err != nil {
 		return nil, fmt.Errorf("copy rootfs: %w", err)
 	}
+	agentPath, err := config.ResolveGuestAgent(m.cfg)
+	if err != nil {
+		_ = RemoveState(m.cfg.StateDir, id)
+		return nil, err
+	}
 	patchOpts := rootfs.PatchOptions{
-		SSHPubKey:     key.PublicKey,
-		Env:           m.cfg.Env,
-		Nameservers:   m.cfg.Network.Nameservers,
-		StaticNetwork: !useCNI,
-		GuestIP:       guestIP,
-		Gateway:       tapIP,
+		SSHPubKey:      key.PublicKey,
+		Env:            m.cfg.Env,
+		Nameservers:    m.cfg.Network.Nameservers,
+		GuestAgentPath: agentPath,
+		StaticNetwork:  !useCNI,
+		GuestIP:        guestIP,
+		Gateway:        tapIP,
 	}
 	if err := assets.PatchExt4(rootfsCopy, patchOpts); err != nil {
 		_ = RemoveState(m.cfg.StateDir, id)
@@ -300,6 +307,8 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 		SSHKey:      key.PrivateKeyPath,
 		ChrootDir:   chrootDir,
 		LogPath:     filepath.Join(chrootDir, fcCfg.LogPath),
+		VsockUDS:    filepath.Join(chrootDir, vsock.UDSName),
+		VsockCID:    vsock.GuestCID,
 		JailerUID:   uid,
 		JailerGID:   gid,
 		StartedAt:   time.Now(),

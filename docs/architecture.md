@@ -1,6 +1,6 @@
 # Architecture
 
-fcvm is a root-required Linux CLI that manages Firecracker microVM lifecycle: download assets, build rootfs images, start/stop jailed VMs, inject env and mounts, and run commands in guests over SSH.
+fcvm is a root-required Linux CLI that manages Firecracker microVM lifecycle: download assets, build rootfs images, start/stop jailed VMs, inject env and mounts, and run commands in guests over SSH or vsock.
 
 ## Packages
 
@@ -27,7 +27,9 @@ flowchart LR
 | `config/` | Config types, defaults, path expansion, validation |
 | `vm/` | Lifecycle manager, Firecracker SDK wiring, persisted state |
 | `network/` | TAP setup/teardown, CNI teardown, NFS exports |
-| `guest/` | SSH key management, exec/shell, serial log tail |
+| `guest/` | SSH key management, exec/shell, vsock client, serial log tail |
+| `guest/agent/` | Guest vsock command agent (`fcvm-guest-agent`) |
+| `vsock/` | Shared vsock ports/protocol constants |
 | `assets/` | Download Firecracker/jailer/kernel/rootfs; patch ext4 |
 | `rootfs/` | Docker → ext4 build; guest bootstrap hooks |
 
@@ -60,7 +62,7 @@ Default state directory: `~/.fcvm` (respects `SUDO_USER` home when run under sud
     state.json        # runtime metadata
 ```
 
-`state.json` records id, network index, pid and its `/proc` start time, socket, network mode (tap/cni), tap device, host egress interface, guest subnet, guest IP/MAC, SSH key path, chroot/log paths, jailer uid/gid, mounts, and env.
+`state.json` records id, network index, pid and its `/proc` start time, socket, network mode (tap/cni), tap device, host egress interface, guest subnet, guest IP/MAC, SSH key path, chroot/log paths, vsock UDS/CID, jailer uid/gid, mounts, and env.
 
 VM ids are validated before they are used as path components: letters, digits, `-`, `_` and `.`, up to 64 characters. Everything under this tree is created and removed as root, so an id like `../../etc` is rejected rather than joined into a path.
 
@@ -72,7 +74,7 @@ VM ids are validated before they are used as path components: letters, digits, `
 2. Reject if `state.json` already exists; wipe leftover jailer tree for the ID.
 3. Require firecracker, jailer, kernel, and rootfs on disk.
 4. Allocate the lowest free VM index → TAP subnet (or CNI) and jailer uid/gid.
-5. Copy template rootfs → `vms/<id>/rootfs.ext4`; in one loop mount, inject hooks, SSH authorized keys, env, and (TAP mode) `/etc/fcvm/network`; `chown` for the jailer.
+5. Copy template rootfs → `vms/<id>/rootfs.ext4`; in one loop mount, inject hooks, guest vsock agent, SSH authorized keys, env, and (TAP mode) `/etc/fcvm/network`; `chown` for the jailer.
 6. Set up TAP and this VM's firewall rules (or defer networking to the SDK CNI path); build any `method=block` mount images.
 7. Build Firecracker config (drives, machine knobs, MMDS v2, NIC, full `JailerCfg`) → `NewMachine` → `Start`.
 8. In CNI mode, resolve guest IP/gateway/MAC from the SDK result.
@@ -104,7 +106,7 @@ Hooks injected into the rootfs (`rootfs.InjectHooks`) provide:
 
 The guest does not parse JSON. The host already knows the env and mount tables, so it writes them as plain files and the guest scripts just read fields. MMDS stays enabled and reachable for your own use.
 
-Host control plane after boot is **SSH** over the guest IP (`fcvm exec` / `fcvm shell`), not vsock.
+Host control plane after boot is **SSH** over the guest IP (`fcvm exec` / `fcvm shell`) or **vsock** (`fcvm vsock-exec`).
 
 ## Jailer
 

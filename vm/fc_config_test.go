@@ -65,6 +65,13 @@ func TestBuildFirecrackerConfigDefaults(t *testing.T) {
 	if fc.MachineCfg.CPUTemplate != "" {
 		t.Fatalf("CPUTemplate = %q, want empty", fc.MachineCfg.CPUTemplate)
 	}
+	if len(fc.VsockDevices) != 1 {
+		t.Fatalf("VsockDevices = %+v", fc.VsockDevices)
+	}
+	v := fc.VsockDevices[0]
+	if v.Path != "vsock.sock" || v.CID != 3 || v.ID != "1" {
+		t.Fatalf("VsockDevice = %+v", v)
+	}
 }
 
 func TestBuildFirecrackerConfigOverrides(t *testing.T) {

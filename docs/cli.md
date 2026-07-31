@@ -17,6 +17,7 @@ Global persistent flags (also bindable via config / `FCVM_*` env — see [config
 | `--vcpu-count` | `2` | vCPUs |
 | `--mem-size-mib` | `512` | Memory MiB |
 | `--ssh-key` | `~/.fcvm/id_ed25519` | SSH private key |
+| `--guest-agent-bin` | `~/.fcvm/bin/fcvm-guest-agent` | Guest vsock agent binary injected into rootfs |
 | `--cni-network` | (empty) | CNI network name; empty = static TAP |
 | `--nameservers` | host resolvers | Guest DNS servers |
 | `--verbose` | `false` | Verbose logging |
@@ -61,6 +62,14 @@ Run a command in the guest over SSH.
 
 ```bash
 sudo ./fcvm exec myvm -- uname -a
+```
+
+## `fcvm vsock-exec <id> -- <command…>`
+
+Run a command in the guest over vsock (split channel: command in, output back to this console). Requires the guest agent binary at `--guest-agent-bin` when the VM was started. See [network.md](network.md#vsock).
+
+```bash
+sudo ./fcvm vsock-exec myvm -- uname -a
 ```
 
 ## `fcvm shell <id>`

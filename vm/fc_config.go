@@ -10,6 +10,7 @@ import (
 
 	"github.com/pminnebach/fcvm/config"
 	"github.com/pminnebach/fcvm/network"
+	"github.com/pminnebach/fcvm/vsock"
 )
 
 const (
@@ -87,7 +88,12 @@ func buildFirecrackerConfig(cfg config.Config, in machineBuildInput) firecracker
 		Drives:            drives,
 		MachineCfg:        machineCfg,
 		NetworkInterfaces: buildNetworkInterfaces(cfg, in),
-		MmdsVersion:       firecracker.MMDSv2,
+		VsockDevices: []firecracker.VsockDevice{{
+			ID:   vsock.DeviceID,
+			Path: vsock.UDSName,
+			CID:  vsock.GuestCID,
+		}},
+		MmdsVersion: firecracker.MMDSv2,
 		JailerCfg: &firecracker.JailerConfig{
 			JailerBinary:  cfg.JailerBin,
 			ExecFile:      cfg.FirecrackerBin,

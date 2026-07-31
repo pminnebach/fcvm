@@ -42,6 +42,8 @@ type State struct {
 	SSHKey      string            `json:"ssh_key"`
 	ChrootDir   string            `json:"chroot_dir"`
 	LogPath     string            `json:"log_path"`
+	VsockUDS    string            `json:"vsock_uds,omitempty"` // absolute host path to jail vsock.sock
+	VsockCID    uint32            `json:"vsock_cid,omitempty"`
 	JailerUID   int               `json:"jailer_uid,omitempty"`
 	JailerGID   int               `json:"jailer_gid,omitempty"`
 	StartedAt   time.Time         `json:"started_at"`
