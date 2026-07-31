@@ -2,7 +2,7 @@
 
 ## v1.2.0 (2026-07-31)
 
-Review-backlog release: correctness and security hardening, CLI/guest polish, experimental vsock, and a one-line installer. Earlier versions: [version_history.md](version_history.md).
+Review-backlog release: correctness and security hardening, CLI/guest polish, experimental vsock, and a one-line installer. Earlier versions: [version history](https://github.com/pminnebach/fcvm/blob/main/docs/version_history.md).
 
 ### Correctness and data safety
 
@@ -37,4 +37,4 @@ Review-backlog release: correctness and security hardening, CLI/guest polish, ex
 
 ### Docs
 
-- Host-side debugging guide ([debug.md](debug.md)); jailer PID tracking notes; docs/example config updated for the above
+- Host-side debugging guide ([debug.md](https://github.com/pminnebach/fcvm/blob/main/docs/debug.md)); jailer PID tracking notes; docs/example config updated for the above

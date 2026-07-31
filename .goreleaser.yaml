@@ -38,5 +38,7 @@ before:
 archives:
   - formats: [tar.gz]
 
-changelog:
-  disable: true
+# Pass curated notes: goreleaser release --release-notes docs/release_notes.md --clean
+# Do not set changelog.disable — it ignores --release-notes and publishes an empty body.
+release:
+  mode: replace
