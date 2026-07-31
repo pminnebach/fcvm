@@ -6,7 +6,7 @@
 
 ### Root cause
 
-[vm/manager.go](../vm/manager.go):
+[vm/manager.go](../../vm/manager.go):
 
 ```go
 proc, err := os.FindProcess(state.PID)
@@ -39,7 +39,7 @@ The SDK also offers `machine.Shutdown`/`StopVMM`, but `Stop` runs in a different
 
 ### Root cause
 
-`listCmd` ([cmd/list.go](../cmd/list.go)) prints `ID`, `GUEST IP`, `PID`, and an uptime computed from `StartedAt` for every `state.json` it finds. A VM that crashed, or whose host rebooted, is indistinguishable from a running one, and its uptime keeps climbing.
+`listCmd` ([cmd/list.go](../../cmd/list.go)) prints `ID`, `GUEST IP`, `PID`, and an uptime computed from `StartedAt` for every `state.json` it finds. A VM that crashed, or whose host rebooted, is indistinguishable from a running one, and its uptime keeps climbing.
 
 This is not only cosmetic: those stale entries are what inflate the count in `nextVMIndex` (see [vm-index-allocation.md](vm-index-allocation.md)), so a crashed VM actively causes the index collision bug.
 
@@ -47,7 +47,7 @@ This is not only cosmetic: those stale entries are what inflate the count in `ne
 
 Add a `STATUS` column backed by the same identity check used by `stopVMProcess` — `running` when the PID is alive and ours, `stopped` otherwise. Share one `func (s *State) IsRunning() bool` (or a free function taking a state) so `list`, `stop`, and the allocator all agree on what "live" means.
 
-Follow-on, cheap once the check exists: `cleanup --all` can report which VMs it found dead, and the background `waitVM` goroutine — which currently only logs `VM %q exited` and lets the state file rot ([vm/manager.go](../vm/manager.go)) — can mark the state as exited so a later `list` is accurate even without a liveness probe.
+Follow-on, cheap once the check exists: `cleanup --all` can report which VMs it found dead, and the background `waitVM` goroutine — which currently only logs `VM %q exited` and lets the state file rot ([vm/manager.go](../../vm/manager.go)) — can mark the state as exited so a later `list` is accurate even without a liveness probe.
 
 ## Locked decisions
 
@@ -64,11 +64,11 @@ Follow-on, cheap once the check exists: `cleanup --all` can report which VMs it 
 
 | Area | Change |
 |------|--------|
-| [vm/state.go](../vm/state.go) | Record process identity at start; `IsRunning` helper |
-| [vm/manager.go](../vm/manager.go) | Poll-based `stopVMProcess` with identity check; `waitVM` marks state exited |
-| [cmd/list.go](../cmd/list.go) | `STATUS` column; write via `cmd.OutOrStdout()` (see [cli-ergonomics.md](cli-ergonomics.md)) |
-| [config/config.go](../config/config.go) | `stop-timeout` |
-| [docs/cli.md](../docs/cli.md) | Document the status values |
+| [vm/state.go](../../vm/state.go) | Record process identity at start; `IsRunning` helper |
+| [vm/manager.go](../../vm/manager.go) | Poll-based `stopVMProcess` with identity check; `waitVM` marks state exited |
+| [cmd/list.go](../../cmd/list.go) | `STATUS` column; write via `cmd.OutOrStdout()` (see [cli-ergonomics.md](cli-ergonomics.md)) |
+| [config/config.go](../../config/config.go) | `stop-timeout` |
+| [docs/cli.md](../../docs/cli.md) | Document the status values |
 
 ## Check to leave behind
 

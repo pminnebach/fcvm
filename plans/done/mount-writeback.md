@@ -16,7 +16,7 @@ The user asked for a mount, got a one-way copy, and lost the writes with a zero 
 
 ## Root cause
 
-In `Manager.Start` ([vm/manager.go](../vm/manager.go)) the NFS path degrades to a block device on *any* error — `exportfs` missing, no NFS server, bind mount refused — and the only signal is a log line:
+In `Manager.Start` ([vm/manager.go](../../vm/manager.go)) the NFS path degrades to a block device on *any* error — `exportfs` missing, no NFS server, bind mount refused — and the only signal is a log line:
 
 ```go
 exp, err := network.SetupNFSExport(mount.Host, exportID, mount.Mode == "ro")
@@ -31,7 +31,7 @@ if err != nil {
 Two smaller defects live in the same function:
 
 - `syncDirToExt4` hardcodes `truncate -s 512M`, so any host directory over ~500 MB fails at `mkfs.ext4` with an opaque error, even though `build-rootfs` already has a `--size` flag.
-- The `mount.Mode == "ro"` intent is dropped entirely on the block path — the drive is attached with `IsReadOnly: false` ([vm/fc_config.go](../vm/fc_config.go)), so a read-only mount request becomes a writable scratch copy.
+- The `mount.Mode == "ro"` intent is dropped entirely on the block path — the drive is attached with `IsReadOnly: false` ([vm/fc_config.go](../../vm/fc_config.go)), so a read-only mount request becomes a writable scratch copy.
 
 ## Locked decisions
 
@@ -47,7 +47,7 @@ Two smaller defects live in the same function:
 
 ## Fix
 
-1. Extend the mount option grammar so `method` and `size` are settable per mount, and reject unknown keys. `mountFlag` in [cmd/root.go](../cmd/root.go) is the single parse point (see [cli-ergonomics.md](cli-ergonomics.md), which tightens the same function).
+1. Extend the mount option grammar so `method` and `size` are settable per mount, and reject unknown keys. `mountFlag` in [cmd/root.go](../../cmd/root.go) is the single parse point (see [cli-ergonomics.md](cli-ergonomics.md), which tightens the same function).
 2. Delete the implicit fallback in `Start`: on `SetupNFSExport` error, wrap and return. Mention `method=block` in the error text so the workaround is discoverable.
 3. Size the ext4 image from the source tree instead of the 512M constant; keep a floor so tiny directories still get a valid filesystem.
 4. Honour `Mode == "ro"` when appending the drive in `buildFirecrackerConfig`.
@@ -58,12 +58,12 @@ Two smaller defects live in the same function:
 
 | Area | Change |
 |------|--------|
-| [cmd/root.go](../cmd/root.go) | `mountFlag` parses `method=` / `size=`; rejects unknown options |
-| [config/config.go](../config/config.go) | `MountConfig.Size`; validate `Method` against `auto`/`nfs`/`block` |
-| [vm/manager.go](../vm/manager.go) | Remove silent fallback; size images from source; write-back in `Stop`/`cleanupVM` |
-| [vm/fc_config.go](../vm/fc_config.go) | `IsReadOnly` from mount mode |
-| [docs/network.md](../docs/network.md) | Document that block mounts are copies with sync-on-stop, and their failure modes |
-| [docs/cli.md](../docs/cli.md) | New mount option syntax |
+| [cmd/root.go](../../cmd/root.go) | `mountFlag` parses `method=` / `size=`; rejects unknown options |
+| [config/config.go](../../config/config.go) | `MountConfig.Size`; validate `Method` against `auto`/`nfs`/`block` |
+| [vm/manager.go](../../vm/manager.go) | Remove silent fallback; size images from source; write-back in `Stop`/`cleanupVM` |
+| [vm/fc_config.go](../../vm/fc_config.go) | `IsReadOnly` from mount mode |
+| [docs/network.md](../../docs/network.md) | Document that block mounts are copies with sync-on-stop, and their failure modes |
+| [docs/cli.md](../../docs/cli.md) | New mount option syntax |
 
 ## Check to leave behind
 

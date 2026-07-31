@@ -16,7 +16,7 @@ RemoveState(stateDir, "../../victim")   // returns nil; deletes <base>/victim
 
 ### Root cause
 
-Every state path is built by joining the id verbatim ([vm/state.go](../vm/state.go)):
+Every state path is built by joining the id verbatim ([vm/state.go](../../vm/state.go)):
 
 ```go
 func statePath(stateDir, id string) string {
@@ -49,9 +49,9 @@ Length matters too: `TapDevName` formats `fcvm-tap-%d` from the index so it is s
 
 ### Root cause
 
-This is the same bug already fixed in [network/nfs.go](../network/nfs.go), where `removeExportDirWith` refuses to delete while `isMountPoint` reports the share is mounted. The sibling call sites were never updated.
+This is the same bug already fixed in [network/nfs.go](../../network/nfs.go), where `removeExportDirWith` refuses to delete while `isMountPoint` reports the share is mounted. The sibling call sites were never updated.
 
-[assets/patch.go](../assets/patch.go), both `PatchExt4` and `PatchNetwork`:
+[assets/patch.go](../../assets/patch.go), both `PatchExt4` and `PatchNetwork`:
 
 ```go
 dir, err := os.MkdirTemp("", "fcvm-mount-*")
@@ -60,7 +60,7 @@ defer os.RemoveAll(dir)
 defer exec.Command("umount", mountPoint).Run()   // error dropped
 ```
 
-and [rootfs/hooks.go](../rootfs/hooks.go) `PatchMounted`, which holds the inner `mount`/`umount` pair. If the unmount fails — a stray process in the tree, a lazy-unmount race, an EBUSY — the outer `RemoveAll` recurses *into the mounted image* and deletes the rootfs contents. Today the mount source is an fcvm-owned ext4 copy rather than user data, which is the only reason this has not caused a visible loss yet.
+and [rootfs/hooks.go](../../rootfs/hooks.go) `PatchMounted`, which holds the inner `mount`/`umount` pair. If the unmount fails — a stray process in the tree, a lazy-unmount race, an EBUSY — the outer `RemoveAll` recurses *into the mounted image* and deletes the rootfs contents. Today the mount source is an fcvm-owned ext4 copy rather than user data, which is the only reason this has not caused a visible loss yet.
 
 ### Fix
 
@@ -84,12 +84,12 @@ Reuse what already exists instead of writing a second guard. Export the mount-po
 
 | Area | Change |
 |------|--------|
-| [vm/state.go](../vm/state.go) | `ValidateID`; call from `statePath`, `SaveState`, `RemoveState`, `LoadState` |
-| [vm/manager.go](../vm/manager.go) | Validate in `jailerTreeDir`; surface validation errors from `Start`/`Stop`/`Cleanup` |
-| [cmd/cleanup.go](../cmd/cleanup.go) | `Args: cobra.MaximumNArgs(1)` |
-| [network/nfs.go](../network/nfs.go) | Export the mount-point check for reuse |
-| [assets/patch.go](../assets/patch.go) | Guarded cleanup in `PatchExt4` and `PatchNetwork` |
-| [rootfs/hooks.go](../rootfs/hooks.go) | `PatchMounted` returns the unmount error |
+| [vm/state.go](../../vm/state.go) | `ValidateID`; call from `statePath`, `SaveState`, `RemoveState`, `LoadState` |
+| [vm/manager.go](../../vm/manager.go) | Validate in `jailerTreeDir`; surface validation errors from `Start`/`Stop`/`Cleanup` |
+| [cmd/cleanup.go](../../cmd/cleanup.go) | `Args: cobra.MaximumNArgs(1)` |
+| [network/nfs.go](../../network/nfs.go) | Export the mount-point check for reuse |
+| [assets/patch.go](../../assets/patch.go) | Guarded cleanup in `PatchExt4` and `PatchNetwork` |
+| [rootfs/hooks.go](../../rootfs/hooks.go) | `PatchMounted` returns the unmount error |
 
 ## Check to leave behind
 
@@ -101,7 +101,7 @@ err := RemoveState(stateDir, "../../victim")
 // assert err != nil and that victim/ still exists
 ```
 
-The mount-guard case is already covered in spirit by `TestRemoveExportDirSkipsWhileMounted` in [network/nfs_test.go](../network/nfs_test.go); mirror that structure for the patch helpers if the shared guard is refactored, and reuse its root-skip.
+The mount-guard case is already covered in spirit by `TestRemoveExportDirSkipsWhileMounted` in [network/nfs_test.go](../../network/nfs_test.go); mirror that structure for the patch helpers if the shared guard is refactored, and reuse its root-skip.
 
 ## Non-goals
 

@@ -16,7 +16,7 @@ Any host that can reach port 2049 can mount and write `/home/me/src`, squashed t
 
 ### Root cause
 
-The Linux branch of `nfsExportLine` ([network/nfs.go](../network/nfs.go)) hardcodes the `*` client pattern:
+The Linux branch of `nfsExportLine` ([network/nfs.go](../../network/nfs.go)) hardcodes the `*` client pattern:
 
 ```go
 return fmt.Sprintf("%s *(%s,sync,no_subtree_check,all_squash,anonuid=%d,anongid=%d)", target, rw, uid, gid)
@@ -66,13 +66,13 @@ While in the file: `TeardownNFSExportsForVM` calls `TeardownNFSExport(vmID)` onc
 
 | Area | Change |
 |------|--------|
-| [network/nfs.go](../network/nfs.go) | Client parameter through `nfsExportLine` / `SetupNFSExport`; export root parameter; drop redundant teardown call |
-| [vm/manager.go](../vm/manager.go) | Pass guest IP + export root; defer CNI export setup until after address resolution |
-| [docs/network.md](../docs/network.md) | State the export scope and the new staging path |
+| [network/nfs.go](../../network/nfs.go) | Client parameter through `nfsExportLine` / `SetupNFSExport`; export root parameter; drop redundant teardown call |
+| [vm/manager.go](../../vm/manager.go) | Pass guest IP + export root; defer CNI export setup until after address resolution |
+| [docs/network.md](../../docs/network.md) | State the export scope and the new staging path |
 
 ## Check to leave behind
 
-Extend `TestNFSExportLineMapsToOwner` ([network/nfs_test.go](../network/nfs_test.go)) with the assertion that was missing: the line contains the guest IP as the client and does **not** contain `*`. It is two lines in a test that already exists and needs no root.
+Extend `TestNFSExportLineMapsToOwner` ([network/nfs_test.go](../../network/nfs_test.go)) with the assertion that was missing: the line contains the guest IP as the client and does **not** contain `*`. It is two lines in a test that already exists and needs no root.
 
 ## Non-goals
 

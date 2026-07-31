@@ -6,8 +6,8 @@ The injected guest scripts hardcode DNS, re-parse JSON with `grep`/`sed`, and bu
 
 Two places set it, both in the start path:
 
-- `buildNetworkInterfaces` ([vm/fc_config.go](../vm/fc_config.go)) sets `Nameservers: []string{"8.8.8.8"}`.
-- `startScript` ([rootfs/hooks.go](../rootfs/hooks.go)) runs `echo nameserver 8.8.8.8 > /etc/resolv.conf` on **every** boot, so it also clobbers anything the guest image or an operator configured.
+- `buildNetworkInterfaces` ([vm/fc_config.go](../../vm/fc_config.go)) sets `Nameservers: []string{"8.8.8.8"}`.
+- `startScript` ([rootfs/hooks.go](../../rootfs/hooks.go)) runs `echo nameserver 8.8.8.8 > /etc/resolv.conf` on **every** boot, so it also clobbers anything the guest image or an operator configured.
 
 This sends guest lookups to Google by default, and breaks air-gapped hosts, split-horizon DNS, and any environment with an internal resolver.
 
@@ -15,7 +15,7 @@ This sends guest lookups to Google by default, and breaks air-gapped hosts, spli
 
 ## Issue 2 — Guest scripts re-parse MMDS JSON in shell
 
-`applyMountsScript` ([rootfs/hooks.go](../rootfs/hooks.go)) reconstructs mount records from JSON with line-window heuristics:
+`applyMountsScript` ([rootfs/hooks.go](../../rootfs/hooks.go)) reconstructs mount records from JSON with line-window heuristics:
 
 ```sh
 chunk=$(grep -B5 "\"guest\"[[:space:]]*:[[:space:]]*\"$gp\"" /tmp/fcvm-mounts.json | tail -6)
@@ -44,7 +44,7 @@ echo "export ${key}=\"${val}\"" >> /etc/fcvm/env
 
 ## Issue 4 — Dead injected script
 
-`fcvm-mounts.sh` (`mountsScript` in [rootfs/hooks.go](../rootfs/hooks.go)) fetches the mounts JSON and then does nothing with it — its only body is a comment pointing at `fcvm-start.sh`. It is written into every guest image and called by nothing. Delete it.
+`fcvm-mounts.sh` (`mountsScript` in [rootfs/hooks.go](../../rootfs/hooks.go)) fetches the mounts JSON and then does nothing with it — its only body is a comment pointing at `fcvm-start.sh`. It is written into every guest image and called by nothing. Delete it.
 
 ## Locked decisions
 
@@ -62,18 +62,18 @@ echo "export ${key}=\"${val}\"" >> /etc/fcvm/env
 
 | Area | Change |
 |------|--------|
-| [rootfs/hooks.go](../rootfs/hooks.go) | Write `/etc/fcvm/mounts` + `/etc/fcvm/env` from Go; shrink guest scripts to `read` loops; delete `mountsScript`; conditional resolv.conf |
-| [assets/patch.go](../assets/patch.go) | Pass mounts/env through to the patch step |
-| [vm/manager.go](../vm/manager.go) | Supply the resolved mount list (including device paths) at patch time |
-| [vm/fc_config.go](../vm/fc_config.go) | Nameservers from config |
-| [config/config.go](../config/config.go) | `network.nameservers` |
-| [docs/rootfs.md](../docs/rootfs.md), [docs/network.md](../docs/network.md) | Document the new guest files and DNS behaviour |
+| [rootfs/hooks.go](../../rootfs/hooks.go) | Write `/etc/fcvm/mounts` + `/etc/fcvm/env` from Go; shrink guest scripts to `read` loops; delete `mountsScript`; conditional resolv.conf |
+| [assets/patch.go](../../assets/patch.go) | Pass mounts/env through to the patch step |
+| [vm/manager.go](../../vm/manager.go) | Supply the resolved mount list (including device paths) at patch time |
+| [vm/fc_config.go](../../vm/fc_config.go) | Nameservers from config |
+| [config/config.go](../../config/config.go) | `network.nameservers` |
+| [docs/rootfs.md](../../docs/rootfs.md), [docs/network.md](../../docs/network.md) | Document the new guest files and DNS behaviour |
 
 ## Check to leave behind
 
 The escaping is the part that will break quietly, and it is pure string work: a Go test that renders the env file for values containing `"`, `'`, `$`, a backslash, and a newline, then asserts the output round-trips — ideally by running `sh -c '. file; printf %s "$KEY"'` in the test, which is a real check and still needs no VM.
 
-Extend the existing `TestInjectHooksSystemdUnit` ([rootfs/hooks_test.go](../rootfs/hooks_test.go)) to assert `fcvm-mounts.sh` is no longer written.
+Extend the existing `TestInjectHooksSystemdUnit` ([rootfs/hooks_test.go](../../rootfs/hooks_test.go)) to assert `fcvm-mounts.sh` is no longer written.
 
 ## Non-goals
 

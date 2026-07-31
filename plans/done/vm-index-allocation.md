@@ -15,7 +15,7 @@ VM `b` loses its network and never recovers. With `jailer.per-vm-uids: true`, `b
 
 ## Root cause
 
-`Manager.nextVMIndex` ([vm/manager.go](../vm/manager.go)) returns `len(states)`, which is a population count, not an allocation:
+`Manager.nextVMIndex` ([vm/manager.go](../../vm/manager.go)) returns `len(states)`, which is a population count, not an allocation:
 
 ```go
 func (m *Manager) nextVMIndex() int {
@@ -24,7 +24,7 @@ func (m *Manager) nextVMIndex() int {
 }
 ```
 
-The index feeds three things that must be unique across live VMs — `network.SubnetForIndex`, `network.TapDevName`, and `jailerCreds` — and `SetupTap` ([network/tap.go](../network/tap.go)) opens by deleting whatever device already holds the name:
+The index feeds three things that must be unique across live VMs — `network.SubnetForIndex`, `network.TapDevName`, and `jailerCreds` — and `SetupTap` ([network/tap.go](../../network/tap.go)) opens by deleting whatever device already holds the name:
 
 ```go
 if err := run("ip", "link", "del", tapDev); err != nil && !strings.Contains(err.Error(), "Cannot find device") {
@@ -53,7 +53,7 @@ There is also no locking around `Start`, so two concurrent `fcvm start` invocati
 
 ## Fix
 
-1. Add `Index int \`json:"index"\`` to `vm.State` ([vm/state.go](../vm/state.go)).
+1. Add `Index int \`json:"index"\`` to `vm.State` ([vm/state.go](../../vm/state.go)).
 2. Replace `nextVMIndex` with an allocator that builds a set of claimed indices from `ListStates` and returns the lowest free one. Keep it a method on `Manager` so the state dir stays injected.
 3. Persist `Index` in the `State` literal in `Start`.
 4. Change `SubnetForIndex` to `(tapIP, guestIP string, err error)` and reject an index that would push the third octet past 255. `Start` surfaces the error instead of booting a colliding VM.
@@ -64,11 +64,11 @@ There is also no locking around `Start`, so two concurrent `fcvm start` invocati
 
 | Area | Change |
 |------|--------|
-| [vm/state.go](../vm/state.go) | `Index` field; helper returning claimed indices from `ListStates` |
-| [vm/manager.go](../vm/manager.go) | `nextVMIndex` → lowest-free allocator; persist `Index`; handle `SubnetForIndex` error; take the state lock |
-| [network/tap.go](../network/tap.go) | `SubnetForIndex` returns an error on overflow; `SetupTap` refuses an existing device |
-| [docs/network.md](../docs/network.md) | Correct the "index" description: allocation is lowest-free, not sequential by count |
-| [docs/architecture.md](../docs/architecture.md) | `state.json` field list gains `index` |
+| [vm/state.go](../../vm/state.go) | `Index` field; helper returning claimed indices from `ListStates` |
+| [vm/manager.go](../../vm/manager.go) | `nextVMIndex` → lowest-free allocator; persist `Index`; handle `SubnetForIndex` error; take the state lock |
+| [network/tap.go](../../network/tap.go) | `SubnetForIndex` returns an error on overflow; `SetupTap` refuses an existing device |
+| [docs/network.md](../../docs/network.md) | Correct the "index" description: allocation is lowest-free, not sequential by count |
+| [docs/architecture.md](../../docs/architecture.md) | `state.json` field list gains `index` |
 
 ## Check to leave behind
 

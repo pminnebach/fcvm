@@ -4,9 +4,9 @@ A batch of small, independent Cobra/Viper fixes. None is individually large; tog
 
 ## 1. Commands ignore their context
 
-Every `RunE` builds its own context — `mgr.Start(context.Background(), id)` in [cmd/start.go](../cmd/start.go), the same in [cmd/self_check.go](../cmd/self_check.go) — so nothing is cancellable. `Start` can sit in `guest.WaitSSH` for the full `wait-timeout` (default 120s) and Ctrl+C does nothing useful; the download commands can block indefinitely on a stalled server (see [asset-integrity.md](asset-integrity.md)).
+Every `RunE` builds its own context — `mgr.Start(context.Background(), id)` in [cmd/start.go](../../cmd/start.go), the same in [cmd/self_check.go](../../cmd/self_check.go) — so nothing is cancellable. `Start` can sit in `guest.WaitSSH` for the full `wait-timeout` (default 120s) and Ctrl+C does nothing useful; the download commands can block indefinitely on a stalled server (see [asset-integrity.md](asset-integrity.md)).
 
-**Fix:** in `Execute` ([cmd/root.go](../cmd/root.go)), build a `signal.NotifyContext` for `os.Interrupt`/`syscall.SIGTERM` and call `rootCmd.ExecuteContext(ctx)`. Replace every `context.Background()` in `cmd/` with `cmd.Context()`. Then thread it where it actually blocks:
+**Fix:** in `Execute` ([cmd/root.go](../../cmd/root.go)), build a `signal.NotifyContext` for `os.Interrupt`/`syscall.SIGTERM` and call `rootCmd.ExecuteContext(ctx)`. Replace every `context.Background()` in `cmd/` with `cmd.Context()`. Then thread it where it actually blocks:
 
 - `guest.WaitSSH` takes a `ctx` and selects on `ctx.Done()` between attempts instead of `time.Sleep`.
 - `assets.DownloadFile` and the S3 listing calls take a `ctx`.
@@ -27,8 +27,8 @@ Every command writes with `fmt.Printf`/`fmt.Println` straight to `os.Stdout`, an
 
 ## 4. Argument and flag validation gaps
 
-- `cleanupCmd` ([cmd/cleanup.go](../cmd/cleanup.go)) declares no `Args`, so `fcvm cleanup a b c` silently ignores `b` and `c`. Add `cobra.MaximumNArgs(1)` (also called for in [destructive-path-guards.md](destructive-path-guards.md)).
-- `--dockerfile` ([cmd/build_rootfs.go](../cmd/build_rootfs.go)) and `--url` ([cmd/download.go](../cmd/download.go)) are enforced with hand-written `if x == ""` checks. `MarkFlagRequired` is built in and produces a consistent message.
+- `cleanupCmd` ([cmd/cleanup.go](../../cmd/cleanup.go)) declares no `Args`, so `fcvm cleanup a b c` silently ignores `b` and `c`. Add `cobra.MaximumNArgs(1)` (also called for in [destructive-path-guards.md](destructive-path-guards.md)).
+- `--dockerfile` ([cmd/build_rootfs.go](../../cmd/build_rootfs.go)) and `--url` ([cmd/download.go](../../cmd/download.go)) are enforced with hand-written `if x == ""` checks. `MarkFlagRequired` is built in and produces a consistent message.
 - Several places use `value, _ := cmd.Flags().GetString(...)` while others check the error. Pick one: for flags the command itself declared, ignoring the error is defensible, but do it consistently.
 
 ## 5. `mountFlag` silently downgrades read-only mounts
@@ -47,7 +47,7 @@ if len(parts) > 2 && parts[2] == "ro" {
 
 ## 6. `fcvm exec` loses argument quoting
 
-`guest.Exec` ([guest/ssh.go](../guest/ssh.go)) appends the command argv to the `ssh` argv unmodified. `ssh` joins its remaining arguments with spaces and hands the result to the remote shell, which re-splits it:
+`guest.Exec` ([guest/ssh.go](../../guest/ssh.go)) appends the command argv to the `ssh` argv unmodified. `ssh` joins its remaining arguments with spaces and hands the result to the remote shell, which re-splits it:
 
 ```bash
 sudo fcvm exec myvm -- touch "my file"     # creates two files, "my" and "file"
@@ -70,13 +70,13 @@ sudo fcvm exec myvm -- touch "my file"     # creates two files, "my" and "file"
 
 | Area | Change |
 |------|--------|
-| [cmd/root.go](../cmd/root.go) | `ExecuteContext` + signal handling; `SilenceUsage`; strict `mountFlag` |
-| [cmd/start.go](../cmd/start.go), [cmd/self_check.go](../cmd/self_check.go) | `cmd.Context()` |
-| [cmd/cleanup.go](../cmd/cleanup.go) | `Args` validator |
-| [cmd/build_rootfs.go](../cmd/build_rootfs.go), [cmd/download.go](../cmd/download.go) | `MarkFlagRequired`; pass context |
-| [cmd/list.go](../cmd/list.go) and other printers | `cmd.OutOrStdout()` |
-| [guest/ssh.go](../guest/ssh.go) | Quote exec arguments; `ctx` in `WaitSSH` |
-| [docs/cli.md](../docs/cli.md) | Mount grammar, exec quoting note |
+| [cmd/root.go](../../cmd/root.go) | `ExecuteContext` + signal handling; `SilenceUsage`; strict `mountFlag` |
+| [cmd/start.go](../../cmd/start.go), [cmd/self_check.go](../../cmd/self_check.go) | `cmd.Context()` |
+| [cmd/cleanup.go](../../cmd/cleanup.go) | `Args` validator |
+| [cmd/build_rootfs.go](../../cmd/build_rootfs.go), [cmd/download.go](../../cmd/download.go) | `MarkFlagRequired`; pass context |
+| [cmd/list.go](../../cmd/list.go) and other printers | `cmd.OutOrStdout()` |
+| [guest/ssh.go](../../guest/ssh.go) | Quote exec arguments; `ctx` in `WaitSSH` |
+| [docs/cli.md](../../docs/cli.md) | Mount grammar, exec quoting note |
 
 ## Check to leave behind
 

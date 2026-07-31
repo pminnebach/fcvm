@@ -19,7 +19,7 @@ sudo iptables -t nat -S POSTROUTING    # MASQUERADE rule still present
 
 ## Root cause
 
-`SetupTap` ([network/tap.go](../network/tap.go)) reaches for the broadest possible switches:
+`SetupTap` ([network/tap.go](../../network/tap.go)) reaches for the broadest possible switches:
 
 ```go
 if err := run("sh", "-c", "echo 1 > /proc/sys/net/ipv4/ip_forward"); err != nil { … }
@@ -61,10 +61,10 @@ Two supporting problems:
 
 | Area | Change |
 |------|--------|
-| [network/tap.go](../network/tap.go) | `FCVM` chain helpers; per-VM accept + masquerade rules; precise teardown; JSON `defaultIface`; drop the `-P FORWARD` call and the empty `if` body above it |
-| [vm/state.go](../vm/state.go) | Persist host interface (and subnet) used for the VM's rules |
-| [vm/manager.go](../vm/manager.go) | Pass teardown parameters; restore `ip_forward` when the last VM stops |
-| [docs/network.md](../docs/network.md) | Document the `FCVM` chain, what is added per VM, and what is restored |
+| [network/tap.go](../../network/tap.go) | `FCVM` chain helpers; per-VM accept + masquerade rules; precise teardown; JSON `defaultIface`; drop the `-P FORWARD` call and the empty `if` body above it |
+| [vm/state.go](../../vm/state.go) | Persist host interface (and subnet) used for the VM's rules |
+| [vm/manager.go](../../vm/manager.go) | Pass teardown parameters; restore `ip_forward` when the last VM stops |
+| [docs/network.md](../../docs/network.md) | Document the `FCVM` chain, what is added per VM, and what is restored |
 
 ## Check to leave behind
 

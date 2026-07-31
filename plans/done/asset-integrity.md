@@ -4,7 +4,7 @@ Binaries that fcvm later executes as root are fetched with no integrity check an
 
 ## Root cause
 
-`DownloadFile` ([assets/download.go](../assets/download.go)) is the single fetch path for the firecracker/jailer tarball, the kernel, and rootfs images:
+`DownloadFile` ([assets/download.go](../../assets/download.go)) is the single fetch path for the firecracker/jailer tarball, the kernel, and rootfs images:
 
 ```go
 resp, err := http.Get(url) //nolint:noctx // ponytail: simple asset fetch
@@ -44,11 +44,11 @@ Three problems in that one line and its surroundings:
 
 | Area | Change |
 |------|--------|
-| [assets/download.go](../assets/download.go) | Shared client with timeout; ctx + digest parameters; hash-while-writing; scheme check; checksum fetch for releases |
-| [assets/kernel_ci.go](../assets/kernel_ci.go) | Same client/context for the S3 listing calls |
-| [cmd/download.go](../cmd/download.go) | `--sha256` and `--insecure` flags; pass `cmd.Context()` |
-| [config/config.go](../config/config.go) | `kernel-sha256` (and rootfs equivalent if wanted) |
-| [docs/install.md](../docs/install.md) / [docs/kernel.md](../docs/kernel.md) | Document verification behaviour and how to supply a digest |
+| [assets/download.go](../../assets/download.go) | Shared client with timeout; ctx + digest parameters; hash-while-writing; scheme check; checksum fetch for releases |
+| [assets/kernel_ci.go](../../assets/kernel_ci.go) | Same client/context for the S3 listing calls |
+| [cmd/download.go](../../cmd/download.go) | `--sha256` and `--insecure` flags; pass `cmd.Context()` |
+| [config/config.go](../../config/config.go) | `kernel-sha256` (and rootfs equivalent if wanted) |
+| [docs/install.md](../../docs/install.md) / [docs/kernel.md](../../docs/kernel.md) | Document verification behaviour and how to supply a digest |
 
 ## Check to leave behind
 
