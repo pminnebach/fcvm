@@ -2,6 +2,8 @@
 # Install the latest fcvm release and download Firecracker, jailer, and kernel.
 # Usage:
 #   curl -sSL https://raw.githubusercontent.com/pminnebach/fcvm/refs/heads/main/install.sh | sudo bash
+#   curl -sSL https://raw.githubusercontent.com/pminnebach/fcvm/refs/heads/main/install.sh | bash -s -- --dry-run
+#   bash install.sh --dry-run
 set -euo pipefail
 
 REPO="pminnebach/fcvm"
@@ -184,12 +186,54 @@ print_tsv_table() {
   done
 }
 
+print_dependency_status() {
+  local state="$1"
+  local docker_bin firecracker_bin jailer_bin kernel_path rootfs_path
+  local table_color="none"
+
+  docker_bin="$(cmd_path docker)"
+  firecracker_bin="${state}/bin/firecracker"
+  jailer_bin="${state}/bin/jailer"
+  kernel_path="${state}/images/vmlinux"
+  rootfs_path="${state}/images/rootfs.ext4"
+
+  if [[ -t 1 ]] && [[ ! -v NO_COLOR ]]; then
+    table_color="green"
+  fi
+  {
+    printf 'Dependency\tPath\tStatus\n'
+    printf 'fcvm\t%s\t%s\n' "${FCVM_BIN}" "$(status_of "${FCVM_BIN}")"
+    printf 'firecracker\t%s\t%s\n' "${firecracker_bin}" "$(status_of "${firecracker_bin}")"
+    printf 'jailer\t%s\t%s\n' "${jailer_bin}" "$(status_of "${jailer_bin}")"
+    printf 'kernel\t%s\t%s\n' "${kernel_path}" "$(status_of "${kernel_path}")"
+    printf 'rootfs\t%s\t%s\n' "${rootfs_path}" "$(status_of "${rootfs_path}")"
+    if [[ -n "${docker_bin}" ]]; then
+      printf 'docker\t%s\tpresent\n' "${docker_bin}"
+    else
+      printf 'docker\t(not found)\tmissing\n'
+    fi
+    printf 'kvm\t/dev/kvm\t%s\n' "$(status_of /dev/kvm)"
+    printf 'ip\t%s\t%s\n' "$(tool_path ip)" "$(tool_status ip)"
+    printf 'iptables\t%s\t%s\n' "$(tool_path iptables)" "$(tool_status iptables)"
+    printf 'mkfs.ext4\t%s\t%s\n' "$(tool_path mkfs.ext4)" "$(tool_status mkfs.ext4)"
+    printf 'truncate\t%s\t%s\n' "$(tool_path truncate)" "$(tool_status truncate)"
+  } | print_tsv_table "${table_color}"
+
+  printf '\n'
+  if [[ -z "${docker_bin}" ]]; then
+    log_warn "Docker is not installed. Install Docker to build a custom rootfs."
+  fi
+}
+
 main() {
-  need_cmd curl
-  need_cmd tar
-  need_cmd sha256sum
-  need_cmd install
-  need_cmd mktemp
+  local dry_run=0
+  local arg
+  for arg in "$@"; do
+    case "${arg}" in
+      --dry-run) dry_run=1 ;;
+      *) die "unknown argument: ${arg}" ;;
+    esac
+  done
 
   local os arch
   os="$(uname -s | tr '[:upper:]' '[:lower:]')"
@@ -200,12 +244,26 @@ main() {
     *) die "only amd64/x86_64 is supported (got ${arch})" ;;
   esac
 
-  local tag ver home state
-  tag="$(latest_tag)"
-  ver="$(normalize_ver "${tag}")"
+  local home state
   home="$(user_home)"
   [[ -n "${home}" ]] || die "could not resolve home directory"
   state="${home}/.fcvm"
+
+  if (( dry_run )); then
+    printf '\n'
+    print_dependency_status "${state}"
+    return 0
+  fi
+
+  need_cmd curl
+  need_cmd tar
+  need_cmd sha256sum
+  need_cmd install
+  need_cmd mktemp
+
+  local tag ver
+  tag="$(latest_tag)"
+  ver="$(normalize_ver "${tag}")"
 
   log_info "latest release: ${tag}"
 
@@ -247,12 +305,8 @@ main() {
 
   command -v fcvm >/dev/null 2>&1 || die "fcvm not found on PATH after install"
 
-  local docker_bin firecracker_bin jailer_bin kernel_path rootfs_path
-  docker_bin="$(cmd_path docker)"
-  firecracker_bin="${state}/bin/firecracker"
-  jailer_bin="${state}/bin/jailer"
+  local kernel_path
   kernel_path="${state}/images/vmlinux"
-  rootfs_path="${state}/images/rootfs.ext4"
 
   log_info "downloading firecracker and jailer"
   fcvm download firecracker
@@ -265,33 +319,7 @@ main() {
   fi
 
   printf '\n'
-  local table_color="none"
-  if [[ -t 1 ]] && [[ ! -v NO_COLOR ]]; then
-    table_color="green"
-  fi
-  {
-    printf 'Dependency\tPath\tStatus\n'
-    printf 'fcvm\t%s\t%s\n' "${FCVM_BIN}" "$(status_of "${FCVM_BIN}")"
-    printf 'firecracker\t%s\t%s\n' "${firecracker_bin}" "$(status_of "${firecracker_bin}")"
-    printf 'jailer\t%s\t%s\n' "${jailer_bin}" "$(status_of "${jailer_bin}")"
-    printf 'kernel\t%s\t%s\n' "${kernel_path}" "$(status_of "${kernel_path}")"
-    printf 'rootfs\t%s\t%s\n' "${rootfs_path}" "$(status_of "${rootfs_path}")"
-    if [[ -n "${docker_bin}" ]]; then
-      printf 'docker\t%s\tpresent\n' "${docker_bin}"
-    else
-      printf 'docker\t(not found)\tmissing\n'
-    fi
-    printf 'kvm\t/dev/kvm\t%s\n' "$(status_of /dev/kvm)"
-    printf 'ip\t%s\t%s\n' "$(tool_path ip)" "$(tool_status ip)"
-    printf 'iptables\t%s\t%s\n' "$(tool_path iptables)" "$(tool_status iptables)"
-    printf 'mkfs.ext4\t%s\t%s\n' "$(tool_path mkfs.ext4)" "$(tool_status mkfs.ext4)"
-    printf 'truncate\t%s\t%s\n' "$(tool_path truncate)" "$(tool_status truncate)"
-  } | print_tsv_table "${table_color}"
-
-  printf '\n'
-  if [[ -z "${docker_bin}" ]]; then
-    log_warn "Docker is not installed. Install Docker to build a custom rootfs."
-  fi
+  print_dependency_status "${state}"
   log_info "Build a custom rootfs with:"
   log_info "  sudo fcvm build-rootfs --dockerfile ./Dockerfile"
 }
