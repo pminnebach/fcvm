@@ -8,8 +8,32 @@ REPO="pminnebach/fcvm"
 INSTALL_BIN="/usr/local/bin"
 FCVM_BIN="${INSTALL_BIN}/fcvm"
 
+RED=$'\033[31m'
+ORANGE=$'\033[38;5;208m'
+GREEN=$'\033[32m'
+BLUE=$'\033[34m'
+RESET=$'\033[0m'
+
+# usage: log <level> <color_esc> <message...>
+log() {
+  local level="$1" color="$2"
+  shift 2
+  local ts
+  ts="$(date '+%Y-%m-%d %H:%M:%S')"
+  if [[ -t 2 ]] && [[ ! -v NO_COLOR ]]; then
+    printf '%s | %s%s%s | %s\n' "${ts}" "${color}" "${level}" "${RESET}" "$*" >&2
+  else
+    printf '%s | %s | %s\n' "${ts}" "${level}" "$*" >&2
+  fi
+}
+
+log_error() { log error "${RED}" "$*"; }
+log_warn() { log warn "${ORANGE}" "$*"; }
+log_info() { log info "${GREEN}" "$*"; }
+log_verbose() { log verbose "${BLUE}" "$*"; }
+
 die() {
-  printf 'error: %s\n' "$*" >&2
+  log_error "$*"
   exit 1
 }
 
@@ -145,12 +169,12 @@ main() {
   [[ -n "${home}" ]] || die "could not resolve home directory"
   state="${home}/.fcvm"
 
-  printf 'latest release: %s\n' "${tag}"
+  log_info "latest release: ${tag}"
 
   local current=""
   if current="$(installed_version)"; then
     if [[ "$(normalize_ver "${current}")" == "${ver}" ]]; then
-      printf 'fcvm %s already installed, skipping binary download\n' "${current}"
+      log_info "fcvm ${current} already installed, skipping binary download"
     else
       current=""
     fi
@@ -166,7 +190,8 @@ main() {
     archive_url="https://github.com/${REPO}/releases/download/${tag}/${archive_name}"
     sums_url="https://github.com/${REPO}/releases/download/${tag}/${sums_name}"
 
-    printf 'downloading %s\n' "${archive_name}"
+    log_verbose "archive url: ${archive_url}"
+    log_info "downloading ${archive_name}"
     curl -fsSL -o "${tmp}/${archive_name}" "${archive_url}"
     curl -fsSL -o "${tmp}/${sums_name}" "${sums_url}"
 
@@ -176,7 +201,7 @@ main() {
     tar -xzf "${tmp}/${archive_name}" -C "${tmp}"
     [[ -f "${tmp}/fcvm" ]] || die "archive did not contain fcvm binary"
     run_install "${tmp}/fcvm" "${FCVM_BIN}"
-    printf 'installed fcvm %s to %s\n' "${ver}" "${FCVM_BIN}"
+    log_info "installed fcvm ${ver} to ${FCVM_BIN}"
 
     rm -rf "${tmp}"
     trap - EXIT
@@ -191,13 +216,13 @@ main() {
   kernel_path="${state}/images/vmlinux"
   rootfs_path="${state}/images/rootfs.ext4"
 
-  printf 'downloading firecracker and jailer\n'
+  log_info "downloading firecracker and jailer"
   fcvm download firecracker
 
   if [[ -e "${kernel_path}" ]]; then
-    printf 'kernel already present at %s, skipping\n' "${kernel_path}"
+    log_info "kernel already present at ${kernel_path}, skipping"
   else
-    printf 'downloading kernel\n'
+    log_info "downloading kernel"
     fcvm download kernel
   fi
 
@@ -222,10 +247,10 @@ main() {
 
   printf '\n'
   if [[ -z "${docker_bin}" ]]; then
-    printf 'Docker is not installed. Install Docker to build a custom rootfs.\n'
+    log_warn "Docker is not installed. Install Docker to build a custom rootfs."
   fi
-  printf 'Build a custom rootfs with:\n'
-  printf '  sudo fcvm build-rootfs --dockerfile ./Dockerfile\n'
+  log_info "Build a custom rootfs with:"
+  log_info "  sudo fcvm build-rootfs --dockerfile ./Dockerfile"
 }
 
 main "$@"
