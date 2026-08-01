@@ -184,17 +184,22 @@ main() {
 
   command -v fcvm >/dev/null 2>&1 || die "fcvm not found on PATH after install"
 
-  printf 'downloading firecracker and jailer\n'
-  fcvm download firecracker
-  printf 'downloading kernel\n'
-  fcvm download kernel
-
   local docker_bin firecracker_bin jailer_bin kernel_path rootfs_path
   docker_bin="$(cmd_path docker)"
   firecracker_bin="${state}/bin/firecracker"
   jailer_bin="${state}/bin/jailer"
   kernel_path="${state}/images/vmlinux"
   rootfs_path="${state}/images/rootfs.ext4"
+
+  printf 'downloading firecracker and jailer\n'
+  fcvm download firecracker
+
+  if [[ -e "${kernel_path}" ]]; then
+    printf 'kernel already present at %s, skipping\n' "${kernel_path}"
+  else
+    printf 'downloading kernel\n'
+    fcvm download kernel
+  fi
 
   printf '\n'
   print_row "Dependency" "Path" "Status"
