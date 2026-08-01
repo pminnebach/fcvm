@@ -2,14 +2,6 @@
 
 fcvm itself is MIT — see [LICENSE](../LICENSE).
 
-## Embedded / third-party code
-
-| Location | Upstream | License |
-|----------|----------|---------|
-| Embedded in [`install.sh`](../install.sh) (prettytable) | [jakobwesthoff/prettytable.sh](https://github.com/jakobwesthoff/prettytable.sh) | BSD (2-clause; see copyright block in `install.sh`) |
-
-Used to render the dependency status table at the end of install.
-
 ## Direct Go modules
 
 From the top-level `require` block in [`go.mod`](../go.mod):

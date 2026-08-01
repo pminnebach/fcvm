@@ -142,110 +142,46 @@ checksum_for() {
   printf '%s\n' "${sum}"
 }
 
-####
-# Copyright (c) 2016-2025
-#   Jakob Westhoff <jakob@westhoffswelt.de>
-#
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions are met:
-#
-#  - Redistributions of source code must retain the above copyright notice, this
-#    list of conditions and the following disclaimer.
-#  - Redistributions in binary form must reproduce the above copyright notice,
-#    this list of conditions and the following disclaimer in the documentation
-#    and/or other materials provided with the distribution.
-#
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
-# ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-# WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Embedded from https://github.com/jakobwesthoff/prettytable.sh
-####
+# Print tab-separated rows as left-aligned columns (bash builtins only).
+# When color is not "none", ANSI-color the header row (caller gates on TTY).
+print_tsv_table() {
+  local color="${1:-none}"
+  local -a rows=()
+  local -a widths=()
+  local -a fields=()
+  local line row col len out
 
-_prettytable_char_top_left="┌"
-_prettytable_char_horizontal="─"
-_prettytable_char_vertical="│"
-_prettytable_char_bottom_left="└"
-_prettytable_char_bottom_right="┘"
-_prettytable_char_top_right="┐"
-_prettytable_char_vertical_horizontal_left="├"
-_prettytable_char_vertical_horizontal_right="┤"
-_prettytable_char_vertical_horizontal_top="┬"
-_prettytable_char_vertical_horizontal_bottom="┴"
-_prettytable_char_vertical_horizontal="┼"
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    [[ -z "${line}" ]] && continue
+    rows+=("${line}")
+  done
+  ((${#rows[@]} == 0)) && return 0
 
-_prettytable_color_blue="0;34"
-_prettytable_color_green="0;32"
-_prettytable_color_cyan="0;36"
-_prettytable_color_red="0;31"
-_prettytable_color_purple="0;35"
-_prettytable_color_yellow="0;33"
-_prettytable_color_gray="1;30"
-_prettytable_color_light_blue="1;34"
-_prettytable_color_light_green="1;32"
-_prettytable_color_light_cyan="1;36"
-_prettytable_color_light_red="1;31"
-_prettytable_color_light_purple="1;35"
-_prettytable_color_light_yellow="1;33"
-_prettytable_color_light_gray="0;37"
-_prettytable_color_black="0;30"
-_prettytable_color_white="1;37"
-_prettytable_color_none="0"
-
-_prettytable_prettify_lines() {
-  sed -e "s@^@${_prettytable_char_vertical}@;s@\$@	@;s@	@	${_prettytable_char_vertical}@g"
-}
-
-_prettytable_fill_border_lines() {
-  sed -e "1s@ @${_prettytable_char_horizontal}@g;3s@ @${_prettytable_char_horizontal}@g;\$s@ @${_prettytable_char_horizontal}@g"
-}
-
-_prettytable_colorize_lines() {
-  local color="$1"
-  local range="$2"
-  local color_var="_prettytable_color_${color}"
-  local ansicolor="${!color_var}"
-
-  sed -e "${range}s@\([^${_prettytable_char_vertical}]\{1,\}\)@"$'\E'"[${ansicolor}m\1"$'\E'"[${_prettytable_color_none}m@g"
-}
-
-prettytable() {
-  local cols="$1"
-  local color="${2:-none}"
-  local input header body i
-  input="$(cat)"
-  header="$(head -n1 <<<"${input}")"
-  body="$(tail -n+2 <<<"${input}")"
-  {
-    printf '%s' "${_prettytable_char_top_left}"
-    for ((i = 2; i <= cols; i++)); do
-      printf '\t%s' "${_prettytable_char_vertical_horizontal_top}"
+  for line in "${rows[@]}"; do
+    IFS=$'\t' read -r -a fields <<<"${line}"
+    for col in "${!fields[@]}"; do
+      len="${#fields[col]}"
+      if (( len > ${widths[col]:-0} )); then
+        widths[col]=$len
+      fi
     done
-    printf '\t%s\n' "${_prettytable_char_top_right}"
+  done
 
-    printf '%s\n' "${header}" | _prettytable_prettify_lines
-
-    printf '%s' "${_prettytable_char_vertical_horizontal_left}"
-    for ((i = 2; i <= cols; i++)); do
-      printf '\t%s' "${_prettytable_char_vertical_horizontal}"
+  for row in "${!rows[@]}"; do
+    IFS=$'\t' read -r -a fields <<<"${rows[row]}"
+    out=""
+    for col in "${!fields[@]}"; do
+      if (( col > 0 )); then
+        out+="  "
+      fi
+      printf -v out '%s%-*s' "${out}" "${widths[col]}" "${fields[col]}"
     done
-    printf '\t%s\n' "${_prettytable_char_vertical_horizontal_right}"
-
-    printf '%s\n' "${body}" | _prettytable_prettify_lines
-
-    printf '%s' "${_prettytable_char_bottom_left}"
-    for ((i = 2; i <= cols; i++)); do
-      printf '\t%s' "${_prettytable_char_vertical_horizontal_bottom}"
-    done
-    printf '\t%s\n' "${_prettytable_char_bottom_right}"
-  } | column -o '' -t -s $'\t' | _prettytable_fill_border_lines | _prettytable_colorize_lines "${color}" "2"
+    if (( row == 0 )) && [[ "${color}" != "none" ]]; then
+      printf '%s%s%s\n' "${GREEN}" "${out}" "${RESET}"
+    else
+      printf '%s\n' "${out}"
+    fi
+  done
 }
 
 main() {
@@ -254,7 +190,6 @@ main() {
   need_cmd sha256sum
   need_cmd install
   need_cmd mktemp
-  need_cmd column
 
   local os arch
   os="$(uname -s | tr '[:upper:]' '[:lower:]')"
@@ -351,7 +286,7 @@ main() {
     printf 'iptables\t%s\t%s\n' "$(tool_path iptables)" "$(tool_status iptables)"
     printf 'mkfs.ext4\t%s\t%s\n' "$(tool_path mkfs.ext4)" "$(tool_status mkfs.ext4)"
     printf 'truncate\t%s\t%s\n' "$(tool_path truncate)" "$(tool_status truncate)"
-  } | prettytable 3 "${table_color}"
+  } | print_tsv_table "${table_color}"
 
   printf '\n'
   if [[ -z "${docker_bin}" ]]; then
