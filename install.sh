@@ -142,8 +142,26 @@ checksum_for() {
   printf '%s\n' "${sum}"
 }
 
-print_row() {
-  printf '%-14s  %-42s  %s\n' "$1" "$2" "$3"
+load_prettytable() {
+  local here script_dir candidate tmp
+  here="${BASH_SOURCE[0]:-}"
+  if [[ -n "${here}" && -f "${here}" ]]; then
+    script_dir="$(cd "$(dirname "${here}")" && pwd)"
+    candidate="${script_dir}/third_party/prettytable.sh"
+    if [[ -f "${candidate}" ]]; then
+      # shellcheck source=third_party/prettytable.sh
+      source "${candidate}"
+      return
+    fi
+  fi
+  tmp="$(mktemp)"
+  curl -fsSL -o "${tmp}" "https://raw.githubusercontent.com/${REPO}/refs/heads/main/third_party/prettytable.sh" || {
+    rm -f "${tmp}"
+    die "could not download prettytable.sh"
+  }
+  # shellcheck source=third_party/prettytable.sh
+  source "${tmp}"
+  rm -f "${tmp}"
 }
 
 main() {
@@ -152,6 +170,9 @@ main() {
   need_cmd sha256sum
   need_cmd install
   need_cmd mktemp
+  need_cmd column
+
+  load_prettytable
 
   local os arch
   os="$(uname -s | tr '[:upper:]' '[:lower:]')"
@@ -227,23 +248,28 @@ main() {
   fi
 
   printf '\n'
-  print_row "Dependency" "Path" "Status"
-  print_row "------------" "------------------------------------------" "------"
-  print_row "fcvm" "${FCVM_BIN}" "$(status_of "${FCVM_BIN}")"
-  print_row "firecracker" "${firecracker_bin}" "$(status_of "${firecracker_bin}")"
-  print_row "jailer" "${jailer_bin}" "$(status_of "${jailer_bin}")"
-  print_row "kernel" "${kernel_path}" "$(status_of "${kernel_path}")"
-  print_row "rootfs" "${rootfs_path}" "$(status_of "${rootfs_path}")"
-  if [[ -n "${docker_bin}" ]]; then
-    print_row "docker" "${docker_bin}" "present"
-  else
-    print_row "docker" "(not found)" "missing"
+  local table_color="none"
+  if [[ -t 1 ]] && [[ ! -v NO_COLOR ]]; then
+    table_color="green"
   fi
-  print_row "kvm" "/dev/kvm" "$(status_of /dev/kvm)"
-  print_row "ip" "$(tool_path ip)" "$(tool_status ip)"
-  print_row "iptables" "$(tool_path iptables)" "$(tool_status iptables)"
-  print_row "mkfs.ext4" "$(tool_path mkfs.ext4)" "$(tool_status mkfs.ext4)"
-  print_row "truncate" "$(tool_path truncate)" "$(tool_status truncate)"
+  {
+    printf 'Dependency\tPath\tStatus\n'
+    printf 'fcvm\t%s\t%s\n' "${FCVM_BIN}" "$(status_of "${FCVM_BIN}")"
+    printf 'firecracker\t%s\t%s\n' "${firecracker_bin}" "$(status_of "${firecracker_bin}")"
+    printf 'jailer\t%s\t%s\n' "${jailer_bin}" "$(status_of "${jailer_bin}")"
+    printf 'kernel\t%s\t%s\n' "${kernel_path}" "$(status_of "${kernel_path}")"
+    printf 'rootfs\t%s\t%s\n' "${rootfs_path}" "$(status_of "${rootfs_path}")"
+    if [[ -n "${docker_bin}" ]]; then
+      printf 'docker\t%s\tpresent\n' "${docker_bin}"
+    else
+      printf 'docker\t(not found)\tmissing\n'
+    fi
+    printf 'kvm\t/dev/kvm\t%s\n' "$(status_of /dev/kvm)"
+    printf 'ip\t%s\t%s\n' "$(tool_path ip)" "$(tool_status ip)"
+    printf 'iptables\t%s\t%s\n' "$(tool_path iptables)" "$(tool_status iptables)"
+    printf 'mkfs.ext4\t%s\t%s\n' "$(tool_path mkfs.ext4)" "$(tool_status mkfs.ext4)"
+    printf 'truncate\t%s\t%s\n' "$(tool_path truncate)" "$(tool_status truncate)"
+  } | prettytable 3 "${table_color}"
 
   printf '\n'
   if [[ -z "${docker_bin}" ]]; then
