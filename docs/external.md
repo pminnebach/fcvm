@@ -2,13 +2,13 @@
 
 fcvm itself is MIT — see [LICENSE](../LICENSE).
 
-## Vendored scripts
+## Embedded / third-party code
 
-| Path | Upstream | License |
-|------|----------|---------|
-| [`third_party/prettytable.sh`](../third_party/prettytable.sh) | [jakobwesthoff/prettytable.sh](https://github.com/jakobwesthoff/prettytable.sh) | BSD (2-clause; see file header) |
+| Location | Upstream | License |
+|----------|----------|---------|
+| Embedded in [`install.sh`](../install.sh) (prettytable) | [jakobwesthoff/prettytable.sh](https://github.com/jakobwesthoff/prettytable.sh) | BSD (2-clause; see copyright block in `install.sh`) |
 
-Used by [`install.sh`](../install.sh) to render the dependency status table.
+Used to render the dependency status table at the end of install.
 
 ## Direct Go modules
 
