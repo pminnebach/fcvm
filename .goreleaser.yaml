@@ -38,7 +38,8 @@ before:
 archives:
   - formats: [tar.gz]
 
-# Pass curated notes: goreleaser release --release-notes docs/release_notes.md --clean
+# Pass curated notes: goreleaser release --release-notes docs/release_notes_vX.Y.Z.md --clean
+# (bump the workflow's --release-notes path to match each tag; see docs/version_history.md)
 # Do not set changelog.disable — it ignores --release-notes and publishes an empty body.
 release:
   mode: replace

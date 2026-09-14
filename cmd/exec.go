@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -31,6 +32,10 @@ var execCmd = &cobra.Command{
 		if key == "" {
 			key = c.SSHKey
 		}
+		timeout := time.Duration(c.WaitTimeoutSec) * time.Second
+		if err := guest.WaitSSH(cmd.Context(), state.GuestIP, key, timeout); err != nil {
+			return err
+		}
 		return guest.Exec(state.GuestIP, key, cmdArgs)
 	},
 }
@@ -51,6 +56,10 @@ var shellCmd = &cobra.Command{
 		key := state.SSHKey
 		if key == "" {
 			key = c.SSHKey
+		}
+		timeout := time.Duration(c.WaitTimeoutSec) * time.Second
+		if err := guest.WaitSSH(cmd.Context(), state.GuestIP, key, timeout); err != nil {
+			return err
 		}
 		return guest.Shell(state.GuestIP, key)
 	},
