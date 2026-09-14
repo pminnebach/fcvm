@@ -230,6 +230,8 @@ ip netns exec <id> ip -br addr      # addresses inside the VM's netns
 ip netns exec <id> ip route
 ```
 
+`start` (and `fcvm self-check`, when CNI is configured) runs a preflight check before touching any host state: it loads the conflist named by `network.cni-network` and confirms every plugin binary it references — including the nested IPAM plugin (e.g. `host-local`) and `tc-redirect-tap` specifically — exists and is executable under `/opt/cni/bin`. An error here means the conflist or `/opt/cni/bin` needs fixing on the host, not that anything was left behind by a previous run; see [network.md](network.md#cni-mode) for the full prerequisites list.
+
 ## Host mounts
 
 ### NFS exports

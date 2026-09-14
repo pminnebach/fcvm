@@ -113,6 +113,12 @@ func buildFirecrackerConfig(cfg config.Config, in machineBuildInput) firecracker
 			CID:  vsock.GuestCID,
 		}}
 	}
+	if cfg.Network.CNINetwork != "" {
+		// Set explicitly rather than relying on firecracker-go-sdk's private
+		// defaultNetNSPath() computing the same value: network.TeardownCNI
+		// derives this path independently, so the two must stay in sync.
+		fcCfg.NetNS = network.NetNSPath(in.ID)
+	}
 	return fcCfg
 }
 

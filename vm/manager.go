@@ -100,6 +100,11 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 	}
 
 	useCNI := m.cfg.Network.CNINetwork != ""
+	if useCNI {
+		if err := network.ValidateCNIPrereqs(m.cfg.Network.CNINetwork); err != nil {
+			return nil, err
+		}
+	}
 	index, err := m.nextVMIndex()
 	if err != nil {
 		return nil, err
@@ -375,14 +380,16 @@ func (m *Manager) setupMounts(id, guestIP, gateway string, pending []pendingMoun
 			if guestIP == "" {
 				return nil, nil, fmt.Errorf("mount %q: guest address unknown, cannot scope NFS export", p.cfg.Host)
 			}
+			// gateway is only ever empty in CNI mode, when the plugin chain's
+			// IPAM didn't publish one. Fail here rather than exporting to the
+			// guest's own address, which would just make the guest mount fail.
+			if gateway == "" {
+				return nil, nil, fmt.Errorf("mount %q over NFS: CNI network %q did not provide a gateway address; NFS mounts need an IPAM plugin (e.g. host-local) that assigns one", p.cfg.Host, m.cfg.Network.CNINetwork)
+			}
 			exportID := id + "-" + strconv.Itoa(p.slot)
 			exp, err := network.SetupNFSExport(m.cfg.ExportRoot(), p.cfg.Host, exportID, guestIP, p.cfg.ReadOnly())
 			if err != nil {
 				return nil, nil, fmt.Errorf("mount %q over NFS: %w (use method=block to copy the directory into the VM instead)", p.cfg.Host, err)
-			}
-			server := gateway
-			if server == "" {
-				server = guestIP
 			}
 			states = append(states, MountState{
 				Host:     exp.ExportPath,
@@ -391,7 +398,7 @@ func (m *Manager) setupMounts(id, guestIP, gateway string, pending []pendingMoun
 				ReadOnly: p.cfg.ReadOnly(),
 			})
 			records = append(records, rootfs.MountRecord{
-				Method: config.MountNFS, Source: server + ":" + exp.ExportPath, Guest: p.guestPath,
+				Method: config.MountNFS, Source: gateway + ":" + exp.ExportPath, Guest: p.guestPath,
 			})
 		}
 	}

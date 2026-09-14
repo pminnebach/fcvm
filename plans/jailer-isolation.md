@@ -40,14 +40,14 @@ jailer:
 network:
   tap-ip: 172.16.0.1
   guest-ip: 172.16.0.2
-  # cni-network: fcnet   # see plans/cni-network.md
+  # cni-network: fcnet   # see plans/done/cni-network.md
 ```
 
 Defaults stay backward-compatible: unset new fields behave as today.
 
 **Daemonize (phase 1):** done — Start prefers `firecracker.pid` under the jail root (fallback `machine.PID()`). Default stays `false`; do not flip default until operators want it. Incompatible with planned serial console ([serial-console.md](serial-console.md)).
 
-CNI / netns start-stop details: [cni-network.md](cni-network.md).
+CNI / netns start-stop details: [cni-network.md](done/cni-network.md).
 
 ## Phased checklist
 
@@ -61,7 +61,7 @@ CNI / netns start-stop details: [cni-network.md](cni-network.md).
 
 ### Phase 2 — Netns / CNI + per-VM credentials
 
-- [ ] CNI + jailer `--netns`: implement per [cni-network.md](cni-network.md) (single source of truth).
+- [ ] CNI + jailer `--netns`: implement per [cni-network.md](done/cni-network.md) (single source of truth).
 - [ ] Optional per-VM uid/gid (Firecracker prod-host-setup recommendation); document shared-uid risk if left off.
 
 ### Phase 3 — Jailer flags missing from SDK

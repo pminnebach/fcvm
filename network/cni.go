@@ -23,6 +23,23 @@ func NetNSPath(vmID string) string {
 	return filepath.Join(defaultNetNSDir, vmID)
 }
 
+// cniDeleter is the subset of libcni.CNI that TeardownCNI needs. It exists so
+// tests can inject a fake DEL without implementing the full libcni.CNI
+// interface or invoking real plugin binaries.
+type cniDeleter interface {
+	DelNetworkList(ctx context.Context, net *libcni.NetworkConfigList, rt *libcni.RuntimeConf) error
+}
+
+// newCNIDeleter is a variable so tests can swap in a fake cniDeleter. It
+// mirrors the run/SetRunner seam tap.go uses to stay unit-testable.
+var newCNIDeleter = func(binDirs []string, cacheDir string) cniDeleter {
+	return libcni.NewCNIConfigWithCacheDir(binDirs, cacheDir, nil)
+}
+
+// loadCNIConfList is a variable so tests can point it at a temp conflist
+// instead of depending on the real /etc/cni/conf.d.
+var loadCNIConfList = libcni.LoadConfList
+
 // TeardownCNI runs CNI DEL for the VM and removes its netns mount.
 // Safe to call when resources are already gone (best-effort).
 func TeardownCNI(ctx context.Context, vmID, networkName string) error {
@@ -32,8 +49,8 @@ func TeardownCNI(ctx context.Context, vmID, networkName string) error {
 	netNS := NetNSPath(vmID)
 	cacheDir := filepath.Join(defaultCNICacheDir, vmID)
 
-	cniPlugin := libcni.NewCNIConfigWithCacheDir([]string{defaultCNIBinDir}, cacheDir, nil)
-	networkConf, err := libcni.LoadConfList(defaultCNIConfDir, networkName)
+	cniPlugin := newCNIDeleter([]string{defaultCNIBinDir}, cacheDir)
+	networkConf, err := loadCNIConfList(defaultCNIConfDir, networkName)
 	if err != nil {
 		// Still try to remove the netns even if conf is missing.
 		_ = removeNetNS(netNS)

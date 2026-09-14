@@ -4,7 +4,7 @@
 
 - [ ] Interactive serial console via screen (see [plans/serial-console.md](plans/serial-console.md))
 - [ ] Expose unused Firecracker jailer isolation knobs (see [plans/jailer-isolation.md](plans/jailer-isolation.md))
-- [ ] Implement optional CNI networking (see [plans/cni-network.md](plans/cni-network.md))
+- [ ] Formalize TAP/CNI dispatch into a `NetworkProvider` interface, once CNI hardening below has landed and seen use (see [plans/network-provider-interface.md](plans/network-provider-interface.md))
 
 ### Follow-ups from the review
 
@@ -33,3 +33,4 @@
 - [x] Add CI (gofmt, vet, test, build) ([plans/done/repo-hygiene.md](plans/done/repo-hygiene.md))
 - [x] Delete dead code, fix always-nil error and the `docker create` panic, repoint the fake network-config test, stop root tests from mutating the host ([plans/done/repo-hygiene.md](plans/done/repo-hygiene.md))
 - [x] Auto-rebase default TAP `/30` on host collision; hard-error for explicit colliding bases ([plans/done/host-subnet-collision.md](plans/done/host-subnet-collision.md))
+- [x] Implement optional CNI networking, then harden it to the same standard as TAP: fix an NFS-export edge case (empty CNI gateway falling back to the guest's own address), add a host-prerequisites preflight check, bring `network/cni.go` and `resolveCNIAddrs` test coverage up to parity with TAP, and rewrite the CNI docs into an actual how-to. Stays behind `--enable-experimental` ([plans/done/cni-network.md](plans/done/cni-network.md))

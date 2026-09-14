@@ -4,6 +4,10 @@ Wire firecracker-go-sdk CNI so operators can set `network.cni-network` and get n
 
 Related: jailer netns is a side effect of CNI in the SDK — see [jailer-isolation.md](jailer-isolation.md) phase 2 (CNI details live here).
 
+## Status
+
+**Implemented.** Everything in this doc's checklist below shipped; the checklist was just never updated to reflect it, and `TODO.md` still listed this as open. `network.cni-network` stays behind `--enable-experimental` (a deliberate choice, not a gap) while it sees real-world use. Follow-up hardening (test coverage parity with TAP, a preflight check for host prerequisites, a fixed NFS-gateway edge case, and a documentation rewrite) is a separate, later change — see `TODO.md` for its status. A further-out plan to formalize the TAP/CNI branch into a `NetworkProvider` interface lives in [network-provider-interface.md](network-provider-interface.md); it is intentionally not part of this doc's scope.
+
 ## Goal
 
 - When `network.cni-network` is non-empty, start the VM with `CNIConfiguration` instead of hand-rolled TAP.
@@ -26,7 +30,7 @@ Related: jailer netns is a side effect of CNI in the SDK — see [jailer-isolati
 | Guest IP | SDK fills from CNI result (`tc-redirect-tap`); write into `state.GuestIP` after `Start` |
 | Rootfs patch | Skip `PatchNetwork` in CNI mode; rely on SDK `ip=` kernel config (guest hooks no-op if `/etc/fcvm/network` is missing) |
 | NFS | Defer `SetupNFSExport` + MMDS mount metadata until after `Start`; use resolved gateway as NFS server address |
-| Cleanup | No `TeardownTap` / orphan `fcvm-tap-*` for CNI VMs; SDK runs CNI DEL on machine cleanup |
+| Cleanup | No `TeardownTap` / orphan `fcvm-tap-*` for CNI VMs; fcvm's own `network.TeardownCNI` runs CNI DEL (not the SDK's cleanup-on-exit, which never fires — see "Stop / cleanup" below) |
 | State | Record CNI mode (e.g. `network_mode: "cni"` or empty `tap_dev`); skip tap-index / expected-guest-IP validation for those VMs |
 | Default path | Static TAP unchanged |
 
@@ -91,8 +95,8 @@ NetworkInterfaces: []firecracker.NetworkInterface{{
 ### Stop / cleanup (CNI branch)
 
 - Do not call `TeardownTap`.
-- Let SDK machine stop/cleanup invoke CNI DEL.
-- `cleanup --all` orphan TAP reclaim stays TAP-only (ignore CNI VMs).
+- fcvm's own `network.TeardownCNI` runs CNI DEL and removes the netns mount — **not** the SDK's own cleanup-on-exit path. The SDK's `Machine` registers cleanup funcs that fire when its own `m.cmd.Wait()` goroutine sees the child process exit, but that goroutine lives inside the `fcvm start` process, which returns and exits right after `Start()` succeeds — it's gone long before Firecracker itself ever exits. `network.TeardownCNI` is therefore required, not redundant.
+- Neither TAP nor CNI has automatic orphan-state reclaim in `cleanup --all` today (a stopped-mid-flight VM's TAP device, or a CNI netns/cache, both need manual cleanup per docs/debug.md); this is a pre-existing gap in both modes, not something CNI needs to catch up on.
 
 ## Host prerequisites
 
@@ -136,15 +140,17 @@ Document in [docs/network.md](../docs/network.md):
 
 ## Checklist
 
-- [ ] Branch `Start` on non-empty `network.cni-network`.
-- [ ] Skip `PatchNetwork` + `SetupTap` on CNI path; use `CNIConfiguration`.
-- [ ] After `Start`, resolve guest IP/gateway into state and deferred NFS/MMDS.
-- [ ] Stop/cleanup: no `TeardownTap` for CNI VMs; state validation skips TAP index checks.
-- [ ] Example yaml + docs/network.md host setup.
-- [ ] One runnable test that CNI branch selects `CNIConfiguration` and skips TAP setup.
+- [x] Branch `Start` on non-empty `network.cni-network` (`vm/manager.go`'s `useCNI`).
+- [x] Skip `PatchNetwork` + `SetupTap` on CNI path; use `CNIConfiguration` (`vm/fc_config.go`'s `buildNetworkInterfaces`).
+- [x] After `Start`, resolve guest IP/gateway into state and deferred NFS/MMDS (`resolveCNIAddrs`, `setupMounts` in `vm/manager.go`).
+- [x] Stop/cleanup: no `TeardownTap` for CNI VMs; state validation skips TAP index checks (`vm/manager.go`'s `teardownState`, `vm/state.go`'s `IsCNI`).
+- [x] Example yaml + docs/network.md host setup.
+- [x] One runnable test that CNI branch selects `CNIConfiguration` and skips TAP setup (`vm/fc_config_test.go`'s `TestBuildFirecrackerConfigCNI`).
+
+All of the above shipped. What came after — closing a real NFS-gateway edge case, a host-prerequisites preflight check, test coverage for `network/cni.go` and `resolveCNIAddrs` on par with TAP's, and the docs rewrite this doc originally scoped as one line — is tracked as its own hardening pass; see `TODO.md`.
 
 ## Success criteria
 
-- `fcvm start` with empty `cni-network` unchanged.
-- `fcvm start` with `cni-network: fcnet` (and host plugins/conflist) boots, SSH works to CNI-assigned IP, stop cleans via CNI DEL.
-- NFS mounts (if configured) work after deferred setup using CNI gateway.
+- [x] `fcvm start` with empty `cni-network` unchanged.
+- [x] `fcvm start` with `cni-network: fcnet` (and host plugins/conflist) boots, SSH works to CNI-assigned IP, stop cleans via CNI DEL.
+- [x] NFS mounts (if configured) work after deferred setup using CNI gateway (now enforced: `setupMounts` errors out instead of silently exporting to the wrong address if the CNI result has no gateway).

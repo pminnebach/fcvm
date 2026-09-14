@@ -2,7 +2,7 @@
 
 Status: **deferred — design only, no implementation yet.**  
 Source: comparative reading of cloned [firectl/](../firectl/) (`firecracker-microvm/firectl`) vs this repo.  
-Related: [jailer-isolation.md](jailer-isolation.md), [cni-network.md](cni-network.md), [TODO.md](../TODO.md).
+Related: [jailer-isolation.md](jailer-isolation.md), [cni-network.md](done/cni-network.md), [TODO.md](../TODO.md).
 
 ## Goal
 
@@ -69,7 +69,7 @@ Stop: load state → SIGTERM then Kill PID → teardown TAP/NFS/jailer tree ([vm
 - Do not replace TAP+MASQUERADE with “bring your own TAP” as the only path.
 - Do not switch CLI to go-flags or flatten into `package main`.
 - Do not replace structured MMDS (`env` / `mounts`) with raw `--metadata` JSON as the primary UX.
-- Do not implement CNI in this plan (see [cni-network.md](cni-network.md)).
+- Do not implement CNI in this plan (see [cni-network.md](done/cni-network.md)).
 - Do not fix mount-empty-on-cleanup / block-sync here (see [TODO.md](../TODO.md); separate higher-priority track).
 - Do not add abstractions beyond config → builder → SDK fields.
 - No new dependencies.
@@ -243,7 +243,7 @@ jailer:
 
 ### Out of scope here
 
-- Phase 2 CNI/netns/per-VM uids → [cni-network.md](cni-network.md) + jailer-isolation phase 2.
+- Phase 2 CNI/netns/per-VM uids → [cni-network.md](done/cni-network.md) + jailer-isolation phase 2.
 - Phase 3 `--new-pid-ns` / `--resource-limit` if SDK lacks fields.
 
 ---
@@ -298,7 +298,7 @@ Do these outside this plan when prioritizing user-facing bugs:
 
 1. Mounted folder emptied on microVM crash or `fcvm cleanup` ([TODO.md](../TODO.md)).
 2. Sync block-fallback images back to host directory on stop.
-3. Optional CNI ([cni-network.md](cni-network.md)).
+3. Optional CNI ([cni-network.md](done/cni-network.md)).
 4. `ARCHITECTURE.md` (docs debt).
 
 ---
