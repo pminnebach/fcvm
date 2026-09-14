@@ -1,7 +1,11 @@
 package cmd
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
+
+	"github.com/spf13/viper"
 
 	"github.com/pminnebach/fcvm/config"
 )
@@ -34,6 +38,41 @@ func TestMountFlagOptions(t *testing.T) {
 	}
 	if m.Mode != "rw" {
 		t.Fatalf("default mode = %q, want rw", m.Mode)
+	}
+}
+
+// Viper lowercases every key it reads from the config file, including map
+// values nested under env:. loadConfig must recover the original casing so
+// uppercase env var names from .fcvm.yaml survive, matching the --env CLI
+// flag path (which bypasses viper and is unaffected).
+func TestLoadConfigPreservesEnvCase(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".fcvm.yaml")
+	content := "env:\n  MY_VAR: hello\n  Mixed_Case: world\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	viper.SetConfigFile(path)
+	if err := viper.ReadInConfig(); err != nil {
+		t.Fatal(err)
+	}
+
+	c, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Env["MY_VAR"] != "hello" {
+		t.Fatalf("Env[MY_VAR] = %q, want %q (Env: %+v)", c.Env["MY_VAR"], "hello", c.Env)
+	}
+	if c.Env["Mixed_Case"] != "world" {
+		t.Fatalf("Env[Mixed_Case] = %q, want %q (Env: %+v)", c.Env["Mixed_Case"], "world", c.Env)
+	}
+	if _, ok := c.Env["my_var"]; ok {
+		t.Fatalf("Env contains lowercased key my_var, want only original casing (Env: %+v)", c.Env)
 	}
 }
 

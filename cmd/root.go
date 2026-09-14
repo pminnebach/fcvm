@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"gopkg.in/yaml.v3"
 
 	"github.com/pminnebach/fcvm/config"
 )
@@ -153,6 +154,11 @@ func loadConfig() (config.Config, error) {
 	if c.Env == nil {
 		c.Env = map[string]string{}
 	}
+	if env, err := rawConfigEnv(); err != nil {
+		return c, err
+	} else if env != nil {
+		c.Env = env
+	}
 	c.StateDir = config.ExpandPath(c.StateDir)
 	c.FirecrackerBin = config.ExpandPath(c.FirecrackerBin)
 	c.JailerBin = config.ExpandPath(c.JailerBin)
@@ -162,6 +168,27 @@ func loadConfig() (config.Config, error) {
 	c.SSHKey = config.ExpandPath(c.SSHKey)
 	c.GuestAgentBin = config.ExpandPath(c.GuestAgentBin)
 	return c, nil
+}
+
+// rawConfigEnv re-reads the config file's env section directly, bypassing
+// viper's key-lowercasing (viper lowercases every key it reads, including
+// map values nested under env:) so uppercase env var names survive.
+func rawConfigEnv() (map[string]string, error) {
+	path := viper.ConfigFileUsed()
+	if path == "" {
+		return nil, nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var doc struct {
+		Env map[string]string `yaml:"env"`
+	}
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil, err
+	}
+	return doc.Env, nil
 }
 
 // mountFlag parses host:guest[:opt[,opt...]] where opt is ro, rw,
