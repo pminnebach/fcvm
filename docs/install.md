@@ -8,6 +8,15 @@ curl -sSL https://raw.githubusercontent.com/pminnebach/fcvm/refs/heads/main/inst
 
 Installs the latest `fcvm` release to `/usr/local/bin`, downloads Firecracker, jailer, and the default kernel into `~/.fcvm`, and prints a dependency status table. Does not build a rootfs — use `fcvm build-rootfs` after Docker is available.
 
+### Dry-run
+
+Print the dependency status table without downloading or installing anything:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/pminnebach/fcvm/refs/heads/main/install.sh | bash -s -- --dry-run
+# or: bash install.sh --dry-run
+```
+
 ## Requirements
 
 | Requirement | Why |
