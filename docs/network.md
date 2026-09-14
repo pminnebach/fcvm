@@ -98,9 +98,18 @@ Install these under `/opt/cni/bin` (fcvm's default CNI bin dir) before using CNI
 | `ptp` | [containernetworking/plugins](https://github.com/containernetworking/plugins) release tarball | Creates the host-side veth pair, and (with `ipMasq: true`) NATs guest traffic out the host's default interface |
 | `host-local` | same tarball | IPAM: allocates the guest IP and gateway from a static subnet |
 | `firewall` | same tarball | Isolates the veth from other host interfaces (equivalent in spirit to fcvm's own `FCVM` iptables chain in TAP mode) |
-| `tc-redirect-tap` | **not** in the containernetworking/plugins tarball — build it from `firecracker-go-sdk`'s own `cni/` module (`go build ./cni/cmd/tc-redirect-tap` at the SDK's pinned version, or use a prebuilt binary matching that version) | Redirects the veth's traffic to a tap device and reports it back to the SDK as the VM's `StaticConfiguration` |
+| `tc-redirect-tap` | **not** in the containernetworking/plugins tarball — its own repo, [awslabs/tc-redirect-tap](https://github.com/awslabs/tc-redirect-tap) (`go build ./cmd/tc-redirect-tap`) | Redirects the veth's traffic to a tap device and reports it back to the SDK as the VM's `StaticConfiguration` |
 
 Also required: a conflist under `/etc/cni/conf.d` (default dir; see below), and — like everything else in fcvm — root, since network namespace creation needs `CAP_SYS_ADMIN`.
+
+The **host kernel** also needs to actually support what the chain below uses — this matters in minimal or hardened kernels (stripped-down VM/container guest kernels in particular), where these can be missing with no way to load them back in as modules:
+
+| Plugin behavior | Kernel requirement |
+|---|---|
+| `ptp` with `ipMasq: true`, `firewall` | `nft` support for the `inet` table family (`nft add table inet ...`) and, on the `iptables-nft` backend, the comment match (`xt_comment`) |
+| `tc-redirect-tap` | An ingress-capable qdisc (`NET_SCH_INGRESS`/`NET_CLS_ACT`) — `tc qdisc add dev <if> ingress` (or `clsact`) must work |
+
+If either is missing, CNI ADD fails partway through with an error naming the plugin (see Troubleshooting) — it is a host kernel gap, not something a conflist change or an fcvm flag can work around.
 
 ### Conflist authoring
 
@@ -109,7 +118,7 @@ fcvm invokes the whole plugin chain listed in the conflist's `"plugins"` array, 
 ```json
 {
   "name": "fcnet",
-  "cniVersion": "0.3.1",
+  "cniVersion": "1.0.0",
   "plugins": [
     {
       "type": "ptp",
@@ -133,12 +142,12 @@ Reading it top to bottom: `ptp` sets up the link and, via its nested `ipam`, cal
 ```bash
 # 1. Install prerequisites (paths per the table above)
 #    ptp, host-local, firewall -> /opt/cni/bin (from the containernetworking/plugins release)
-#    tc-redirect-tap           -> /opt/cni/bin (built from firecracker-go-sdk's cni/ module)
+#    tc-redirect-tap           -> /opt/cni/bin (built from github.com/awslabs/tc-redirect-tap)
 
 # 2. Write the conflist
 sudo mkdir -p /etc/cni/conf.d
 sudo tee /etc/cni/conf.d/fcnet.conflist >/dev/null <<'EOF'
-{ "name": "fcnet", "cniVersion": "0.3.1", "plugins": [
+{ "name": "fcnet", "cniVersion": "1.0.0", "plugins": [
   { "type": "ptp", "ipMasq": true, "ipam": { "type": "host-local", "subnet": "192.168.127.0/24", "resolvConf": "/etc/resolv.conf" } },
   { "type": "firewall" },
   { "type": "tc-redirect-tap" }
@@ -176,6 +185,9 @@ These come from `firecracker-go-sdk`, not from fcvm, and apply regardless of the
 
 - `fcvm experimental` lists every experimental command/flag, including `--cni-network`; pass `--enable-experimental` to skip the confirmation prompt.
 - A preflight error naming missing plugin binaries or a missing `tc-redirect-tap` (see above) means the conflist or `/opt/cni/bin` needs fixing — it does not mean anything was left behind on the host.
+- `incompatible CNI versions; config is "0.3.1", plugin supports [...]`: the conflist's `"cniVersion"` is older than what your installed plugin binaries support. Plugin binaries from `containernetworking/plugins` v1.x need at least `"0.4.0"`; use `"1.0.0"` (as in the examples above) unless you have a specific reason not to. The preflight check in this fcvm version does not validate this — it only checks that binaries exist, not that their supported CNI version matches the conflist.
+- `plugin type="ptp" failed (add): ... RULE_APPEND failed` / `Could not process rule: Operation not supported ... add table inet ...` / `Extension comment revision 0 not supported`: the host kernel doesn't support what `ipMasq`/`firewall` need (see the kernel requirements table above) — common in minimal or hardened kernels. Not fixable from a conflist or fcvm flag.
+- `plugin type="tc-redirect-tap" failed (add): failed to add ingress qdisc ...`: the host kernel has no ingress-capable qdisc (`tc qdisc add dev <any-if> ingress` fails the same way outside of CNI). Also a host kernel gap, not an fcvm or plugin-version issue.
 - For inspecting a running (or stuck) CNI VM's namespace, tap, and CNI cache state, see [docs/debug.md](debug.md#cni-mode) (`ip netns list`, `ip netns exec <id> ...`, `/var/lib/cni/<id>`).
 - If `stop`/`cleanup` is interrupted (crash, `kill -9`, host reboot) before it runs, the netns mount and CNI cache under `/var/lib/cni/<id>` can be left behind; `ip netns del <id>` and `rm -rf /var/lib/cni/<id>` (see [docs/debug.md](debug.md)) clean them up manually. Neither networking mode auto-reclaims orphaned state today — TAP has the same manual-cleanup requirement for its own devices and rules, documented alongside this in debug.md.
 
