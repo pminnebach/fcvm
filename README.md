@@ -39,7 +39,7 @@ See [docs/install.md](docs/install.md) for host dependencies, GoReleaser builds,
 | [docs/configuration.md](docs/configuration.md) | Config file, env, defaults |
 | [docs/debug.md](docs/debug.md) | Inspect VMs from the host without the CLI |
 | [docs/external.md](docs/external.md) | External sources, dependencies, and licenses |
-| [docs/release_notes.md](docs/release_notes.md) | Latest release notes |
+| [docs/release_notes_v1.2.1.md](docs/release_notes_v1.2.1.md) | Latest release notes |
 | [docs/version_history.md](docs/version_history.md) | Version overview |
 
 Example config: [fcvm.example.yaml](fcvm.example.yaml).
