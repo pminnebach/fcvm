@@ -53,13 +53,15 @@ Run `gofmt -w` on the three files as a separate first commit so the formatting n
 
 ## Checklist
 
-- [ ] `gofmt -w` the three flagged files (standalone commit).
-- [ ] Add the CI workflow; confirm it fails on an intentionally unformatted file, then passes.
-- [ ] Delete the dead code in the table above.
-- [ ] `buildFirecrackerConfig` signature; `docker.go` `TrimSpace`.
-- [ ] Repoint `vm/network_config_test.go` at the real builder.
-- [ ] Injection seam for `network.run`; assert commands instead of executing them.
-- [ ] Fix the two doc-drift items in `docs/architecture.md`.
+Re-verified against `main` on 2026-09-14:
+
+- [x] `gofmt -w` the three flagged files (standalone commit).
+- [x] Add the CI workflow; confirm it fails on an intentionally unformatted file, then passes. (`.github/workflows/ci.yml` has a dedicated `gofmt -l .` step plus vet/test/build.)
+- [ ] Delete the dead code in the table above. **`DownloadKernel` in `assets/download.go` is still an undeleted one-line pass-through — tracked separately in [plans/repo-hygiene-followup.md](../repo-hygiene-followup.md).** Every other item in the table (`MetadataJSON`, `Config.VMID`, `InjectHooks` wrapper, empty `if` body in `network/tap.go`, redundant teardown call in `network/nfs.go`, `mountsScript`) is confirmed removed.
+- [x] `buildFirecrackerConfig` signature; `docker.go` `TrimSpace`. (`vm/fc_config.go:41` single return value; `rootfs/docker.go:29` uses `strings.TrimSpace`.)
+- [x] Repoint `vm/network_config_test.go` at the real builder. (`vm/network_config_test.go:19-25,34-41,52-58` calls `buildFirecrackerConfig` directly.)
+- [x] Injection seam for `network.run`; assert commands instead of executing them. (`network/tap.go:181` `var run = execRun`, overridable via `network.SetRunner`; used in `vm/cleanup_test.go:47-53`.)
+- [x] Fix the two doc-drift items in `docs/architecture.md`. (Jailer layout and `state.json` field list both updated to match current code.)
 
 ## Non-goals
 

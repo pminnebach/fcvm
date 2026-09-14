@@ -3,15 +3,18 @@
 ## Open
 
 - [ ] Interactive serial console via screen (see [plans/serial-console.md](plans/serial-console.md))
-- [ ] Expose unused Firecracker jailer isolation knobs (see [plans/jailer-isolation.md](plans/jailer-isolation.md))
-- [ ] Implement optional CNI networking (see [plans/cni-network.md](plans/cni-network.md))
+- [ ] Expose remaining Firecracker jailer isolation knobs — `--new-pid-ns` / `--resource-limit` (Phase 3; Phases 1-2 are done) (see [plans/jailer-isolation.md](plans/jailer-isolation.md))
+- [ ] Optional Firecracker features from firectl: initrd, general vsock device config, metrics FIFO, user extra drives, root partuuid (see [plans/optional-firecracker-features.md](plans/optional-firecracker-features.md))
+- [ ] Graceful Firecracker API shutdown before SIGTERM/Kill on stop (see [plans/graceful-stop.md](plans/graceful-stop.md))
+- [ ] Fix outstanding code-review bugs: SSH warning noise, completion skip-list, CNI empty-gateway NFS mis-scoping, dead `--` handling, vsock-exec socket race, install-kasm.sh debug logging, no build/download progress feedback (see [plans/code-review-fixes.md](plans/code-review-fixes.md))
+- [ ] Repo hygiene follow-up: delete dead `DownloadKernel` wrapper, fix stale Dockerfile references in docs/rootfs.md (see [plans/repo-hygiene-followup.md](plans/repo-hygiene-followup.md))
 
 ### Follow-ups from the review
 
-- [ ] Move `cmd/` off the global viper singleton so config does not leak between tests (noted in [plans/done/cli-ergonomics.md](plans/done/cli-ergonomics.md); the `cmd.OutOrStdout()` groundwork is done)
-- [ ] Consider an in-process SSH client via `x/crypto/ssh` instead of shelling out to `ssh` (argument quoting is fixed either way)
-- [ ] `copyFile` is not sparse-aware, so every `start` writes the full rootfs size (see [plans/done/repo-hygiene.md](plans/done/repo-hygiene.md))
-- [ ] Coverage is still thin in `assets/` and `cmd/`
+- [ ] Move `cmd/` off the global viper singleton so config does not leak between tests (the `cmd.OutOrStdout()` groundwork is done) (see [plans/cmd-viper-scoping.md](plans/cmd-viper-scoping.md))
+- [ ] In-process SSH client via `x/crypto/ssh` instead of shelling out to `ssh` (see [plans/inprocess-ssh-client.md](plans/inprocess-ssh-client.md))
+- [ ] `copyFile` is not sparse-aware, so every `start` writes the full rootfs size (see [plans/sparse-copy.md](plans/sparse-copy.md))
+- [ ] Coverage is still thin in `assets/` (39.9%) and `cmd/` (31.3%) (see [plans/test-coverage-assets-cmd.md](plans/test-coverage-assets-cmd.md))
 
 ## Done
 
@@ -33,3 +36,5 @@
 - [x] Add CI (gofmt, vet, test, build) ([plans/done/repo-hygiene.md](plans/done/repo-hygiene.md))
 - [x] Delete dead code, fix always-nil error and the `docker create` panic, repoint the fake network-config test, stop root tests from mutating the host ([plans/done/repo-hygiene.md](plans/done/repo-hygiene.md))
 - [x] Auto-rebase default TAP `/30` on host collision; hard-error for explicit colliding bases ([plans/done/host-subnet-collision.md](plans/done/host-subnet-collision.md))
+- [x] Implement optional CNI networking ([plans/done/cni-network.md](plans/done/cni-network.md))
+- [x] Adopt firectl-inspired config improvements: pure `firecracker.Config` builder, machine knobs (kernel-args/log-level/cpu-template/disable-smt), version command prints supported Firecracker version, jailer phase 1-2 config (numa/daemonize/cgroup, per-VM uids) ([plans/done/firectl-lessons.md](plans/done/firectl-lessons.md))

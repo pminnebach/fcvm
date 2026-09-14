@@ -2,73 +2,63 @@
 
 Expose Firecracker jailer features that fcvm does not configure yet, without replacing the default static TAP path.
 
+**Status (verified against `main` on 2026-09-14): Phase 1 and Phase 2 are DONE. Only Phase 3 remains open** — this doc now focuses the active plan on Phase 3.
+
 ## Goal
 
-Let operators tighten jailer isolation (cgroups, NUMA, daemonize, netns/CNI, per-VM credentials, PID ns, rlimits) via config. Keep today’s TAP + MASQUERADE networking as the default.
+Let operators tighten jailer isolation (cgroups, NUMA, daemonize, netns/CNI, per-VM credentials, PID ns, rlimits) via config. Keep today's TAP + MASQUERADE networking as the default.
 
-## Current vs desired
+## What shipped (Phases 1-2)
 
-**Today** ([vm/manager.go](../vm/manager.go)):
+**Phase 1 — SDK-exposed jailer knobs:**
 
-- Always starts via jailer with `JailerBinary`, `UID`/`GID`, `NumaNode=0` (hardcoded), auto `CgroupVersion`, `ChrootBaseDir`, `NaiveChrootStrategy`.
-- Config surface ([config/config.go](../config/config.go)): `jailer.uid`, `jailer.gid`, `jailer.chroot-base-dir` only.
-- Networking is hand-rolled TAP ([network/tap.go](../network/tap.go)); `network.cni-network` is reserved and unused ([fcvm.example.yaml](../fcvm.example.yaml)).
-- Jailer always does mount ns + chroot, drops privileges, creates `/dev/kvm` and `/dev/net/tun`. No `--netns`.
+- `numa-node`, `daemonize`, `parent-cgroup`, `cgroup` on `config.JailerConfig` (`config/config.go:12-21`), wired into `JailerCfg` via the builder (`vm/fc_config.go:92-107`: `NumaNode`, `Daemonize`, `CgroupArgs`, `ParentCgroup`).
+- Unit tests: `vm/fc_config_test.go:59-60,109,134-135`.
+- PID tracking with daemonize: `readJailerPIDFile` (`vm/state.go:100-114`), used in `vm/manager.go:278-289`, tested in `vm/jailer_pid_test.go`.
+- Docs: `docs/configuration.md:88-91`.
 
-**Desired:** phased config knobs mapped to firecracker-go-sdk `JailerConfig` / `Config.NetNS` where possible; custom process runner only for flags the SDK does not expose.
+**Phase 2 — Netns / CNI + per-VM credentials:**
 
-## Config sketch
+- CNI + jailer `--netns`: handled implicitly by firecracker-go-sdk as a side effect of `CNIConfiguration` (see [cni-network.md](done/cni-network.md), now archived as done) — the SDK creates `/var/run/netns/<VMID>` and passes `--netns` to the jailer itself; documented in `docs/network.md:82` and `network/cni.go:17,21`.
+- Optional per-VM uid/gid: `config.JailerConfig.PerVMUIDs` (`config/config.go:16`), implemented in `jailerCreds(cfg, index)` (`vm/fc_config.go:148-156`: `if cfg.Jailer.PerVMUIDs { uid += index; gid += index }`), wired at `vm/manager.go:107`, tested at `vm/fc_config_test.go:184`, documented in `fcvm.example.yaml:7` and `docs/configuration.md:87`. Shared-uid risk when left off is documented alongside it.
+
+## What's still open — Phase 3: jailer flags missing from the SDK
+
+`--new-pid-ns` and `--resource-limit` are Firecracker jailer flags that firecracker-go-sdk's `JailerConfig` struct does not expose. Confirmed absent repo-wide (no `NewPidNs`/`NewPIDNs`/`new-pid-ns` or `ResourceLimit`/`resource-limit` anywhere in `config/`, `vm/`, `cmd/`).
+
+### Design
+
+Since the SDK doesn't expose these, they can't be set via `JailerConfig` struct fields. Two implementation paths, in order of preference:
+
+1. **Check for a newer firecracker-go-sdk release that added these fields first.** If the vendored SDK version predates support, check upstream (`go.mod`'s current `firecracker-go-sdk` version) for a release that adds `NewPidNs`/`ResourceLimits` (or similarly named) to `JailerConfig`, and bump the dependency if a compatible version exists. This is strictly simpler than building custom argv construction.
+2. **If the SDK genuinely has no path for these flags**, build the jailer command line manually via the SDK's process-runner extension point (`firecracker.WithProcessRunner` or equivalent — check what the vendored SDK version actually exposes for overriding how the jailer binary is invoked) and append `--new-pid-ns` (boolean flag, no value) and `--resource-limit <key>=<value>` (repeatable) to the constructed argv before exec.
+
+### Config sketch
 
 ```yaml
 jailer:
-  chroot-base-dir: ~/.fcvm/jailer
-  uid: 1000          # shared default; phase 2 can allocate per-VM
-  gid: 1000
-  numa-node: 0       # phase 1; stop hardcoding
-  daemonize: false   # phase 1
-  parent-cgroup: ""  # phase 1
-  cgroup:            # phase 1 → JailerCfg.CgroupArgs
-    - memory.max=1G
-  # phase 2
-  # per-vm-uids: true   # or uid-base / range — pick one shape at implement time
-  # phase 3 (custom argv if SDK still lacks fields)
-  # new-pid-ns: true
-  # resource-limits:
-  #   - no-file=1024
-  #   - fsize=250000000
-
-network:
-  tap-ip: 172.16.0.1
-  guest-ip: 172.16.0.2
-  # cni-network: fcnet   # see plans/cni-network.md
+  new-pid-ns: true
+  resource-limits:
+    - no-file=1024
+    - fsize=250000000
 ```
 
-Defaults stay backward-compatible: unset new fields behave as today.
+- Add `NewPidNS bool` and `ResourceLimits []string` to `config.JailerConfig` (`config/config.go`).
+- Defaults: both empty/false — fully backward compatible.
+- `Validate()`: loosely validate `resource-limits` entries are `key=value` shaped (Firecracker/jailer defines the allowed keys — pass through rather than hardcoding an allowlist, since the jailer itself will reject bad keys).
 
-**Daemonize (phase 1):** done — Start prefers `firecracker.pid` under the jail root (fallback `machine.PID()`). Default stays `false`; do not flip default until operators want it. Incompatible with planned serial console ([serial-console.md](serial-console.md)).
+### Implementation
 
-CNI / netns start-stop details: [cni-network.md](cni-network.md).
+- Wherever the jailer command/argv is ultimately constructed (inside the SDK today, or in a new fcvm-side wrapper if path (2) from Design above is needed), append the two flags when configured.
+- If a custom argv path is needed, keep it narrowly scoped to just appending these two flags — do not reimplement the SDK's existing jailer-invocation logic.
 
-## Phased checklist
+### Tests
 
-### Phase 1 — SDK-exposed jailer knobs
+- Unit test asserting the constructed jailer argv includes `--new-pid-ns` when `NewPidNS: true`, and one or more `--resource-limit` entries matching the configured list, when enabled. If flags are set directly on a (possibly upgraded) SDK `JailerConfig` struct, a builder test similar to the existing `fc_config_test.go:101-153` (`TestBuildFirecrackerConfigOverrides`) suffices.
 
-- [x] Add `numa-node`, `daemonize`, `parent-cgroup`, `cgroup` to `config.JailerConfig` + viper defaults / example yaml.
-- [x] Wire into `JailerCfg` via `vm/fc_config.go` (builder).
-- [x] Unit test: config unmarshaling; builder sets `JailerCfg` fields including daemonize.
-- [x] PID tracking with daemonize: read `firecracker.pid` in Start (not jailer parent from `machine.PID()`).
-- [x] Docs: configuration + architecture note what phase 1 exposes.
+### Documentation
 
-### Phase 2 — Netns / CNI + per-VM credentials
-
-- [ ] CNI + jailer `--netns`: implement per [cni-network.md](cni-network.md) (single source of truth).
-- [ ] Optional per-VM uid/gid (Firecracker prod-host-setup recommendation); document shared-uid risk if left off.
-
-### Phase 3 — Jailer flags missing from SDK
-
-- [ ] `--new-pid-ns` and `--resource-limit`: either upstream firecracker-go-sdk `JailerConfig` fields, or build jailer argv via `WithProcessRunner` / `JailerCommandBuilder` extension.
-- [ ] One small self-check or test that the constructed argv includes the flags when enabled.
-- [ ] Document PID file location under jail root when using `--new-pid-ns`.
+- `docs/configuration.md`: document the new keys, and document PID file location under the jail root specifically when `--new-pid-ns` is set (the PID namespace changes what PID the jailer/Firecracker process appears as from inside vs. outside the namespace — the existing PID-tracking logic (`readJailerPIDFile`, `vm/state.go:100-114`) needs to be re-verified against the jail-root PID file, not a namespace-relative PID, when this flag is on).
 
 ## Non-goals
 
@@ -76,3 +66,9 @@ CNI / netns start-stop details: [cni-network.md](cni-network.md).
 - Do not require CNI plugins for the basic `fcvm start` path.
 - Do not invent abstractions beyond config → SDK/jailer argv.
 - Do not change jailer opt-out (fcvm always uses jailer).
+
+## Success criteria
+
+- `--new-pid-ns` and `--resource-limit` are configurable and verified (via test) to reach the jailer's actual invocation.
+- PID tracking continues to work correctly with `--new-pid-ns` enabled.
+- `go test ./...` green; no behavior change when the new config keys are unset.
