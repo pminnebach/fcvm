@@ -28,6 +28,6 @@ jobs:
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: "~> v2"
-          args: release --clean --release-notes docs/release_notes_v1.2.1.md
+          args: release --clean --release-notes docs/release_notes_v1.2.2.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

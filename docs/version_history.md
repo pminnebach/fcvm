@@ -2,12 +2,17 @@
 
 | Version | Date | Summary |
 |---------|------|---------|
+| [v1.2.2](release_notes_v1.2.2.md) | 2026-09-14 | Fix uppercase `.fcvm.yaml` env vars getting lowercased in the guest |
 | [v1.2.1](release_notes_v1.2.1.md) | 2026-09-14 | Fix `shell`/`exec` failing right after `start` with "No route to host" |
 | [v1.2.0](release_notes_v1.2.0.md) | 2026-07-31 | Correctness/security/CLI hardening; experimental vsock; `install.sh` |
 | v1.1.0 | 2026-07-26 | Jailer/machine knobs; optional CNI; product docs tree |
 | v1.0.0 | 2026-07-17 | Initial CLI; GoReleaser; `fcvm version` |
 
-Full notes for the latest release: [release_notes_v1.2.1.md](release_notes_v1.2.1.md).
+Full notes for the latest release: [release_notes_v1.2.2.md](release_notes_v1.2.2.md).
+
+## v1.2.2 (2026-09-14)
+
+Env vars configured under `env:` in `.fcvm.yaml` now keep their original casing in the guest, instead of being lowercased by viper's config-file parsing. See [release_notes_v1.2.2.md](release_notes_v1.2.2.md).
 
 ## v1.2.1 (2026-09-14)
 
