@@ -1,10 +1,18 @@
-# ARG BASE_IMAGE
-# FROM ${BASE_IMAGE}
+FROM ubuntu:26.04
 
-FROM fcvm-ubuntu-2604
+ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
+  && apt-get upgrade -y \
   && apt-get install -y --no-install-recommends \
+    udev \
+    systemd-sysv \
+    openssh-server \
+    iproute2 \
+    curl \
+    nfs-common \
+    haveged \
+    tzdata \
     nodejs \
     npm \
     python3 \
@@ -41,11 +49,12 @@ RUN (type -p wget >/dev/null || (apt-get update && apt-get install wget -y)) \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/*
 
-# Install Claude Code termina
-RUN curl -fsSL https://claude.ai/install.sh | bash
+# Install Claude Code terminal
+RUN curl -fsSL https://claude.ai/install.sh | bash \
+  && echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
 
 # Install pnpm
 RUN wget -qO- https://get.pnpm.io/install.sh | ENV="$HOME/.shrc" SHELL="$(which sh)" sh -
 
-# COPY files/install-docker.sh /root/scripts/install-docker.sh
+COPY files/install-docker.sh /root/scripts/install-docker.sh
 # RUN chmod 755 /root/scripts/install-docker.sh
