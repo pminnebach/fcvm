@@ -7,6 +7,7 @@ import (
 	"github.com/firecracker-microvm/firecracker-go-sdk/client/models"
 
 	"github.com/pminnebach/fcvm/config"
+	"github.com/pminnebach/fcvm/network"
 )
 
 func TestBuildFirecrackerConfigDefaults(t *testing.T) {
@@ -170,6 +171,25 @@ func TestBuildFirecrackerConfigCNI(t *testing.T) {
 	}
 	if iface.CNIConfiguration.IfName != "veth0" || iface.CNIConfiguration.VMIfName != "eth0" {
 		t.Fatalf("CNI ifnames = %+v", iface.CNIConfiguration)
+	}
+	// Set explicitly rather than left for the SDK to default, so it can never
+	// drift from what network.TeardownCNI independently computes.
+	if want := network.NetNSPath("vm-1"); fc.NetNS != want {
+		t.Fatalf("NetNS = %q, want %q", fc.NetNS, want)
+	}
+}
+
+func TestBuildFirecrackerConfigTAPHasNoNetNS(t *testing.T) {
+	cfg := config.Default()
+	cfg.Kernel = "/tmp/vmlinux"
+
+	fc := buildFirecrackerConfig(cfg, machineBuildInput{
+		ID: "vm-1", RootfsPath: "/tmp/r.ext4",
+		TapDev: "fcvm-tap-0", TapIP: "172.16.0.1", GuestIP: "172.16.0.2", GuestMAC: "02:00:00:00:00:01",
+		JailerUID: 1000, JailerGID: 1000,
+	})
+	if fc.NetNS != "" {
+		t.Fatalf("NetNS = %q, want empty for TAP mode", fc.NetNS)
 	}
 }
 

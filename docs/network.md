@@ -76,26 +76,35 @@ The egress interface comes from parsing `ip -j route list default` as JSON; if t
 
 ## CNI mode
 
+CNI mode is an **experimental**, opt-in alternative to static TAP: instead of fcvm hand-rolling a tap device and iptables rules, a CNI plugin chain builds the network for each VM inside its own network namespace. It is implemented almost entirely by `firecracker-go-sdk` (Firecracker itself has no notion of CNI — it only ever attaches to a tap device); fcvm supplies the plugin chain's name and cleans up after it.
+
 When `network.cni-network` is set (for example `fcnet`):
 
-1. Skip TAP setup and rootfs network patching.
-2. firecracker-go-sdk creates `/var/run/netns/<VMID>`, runs CNI ADD, and passes `--netns` to the jailer. Interface names: host `veth0`, guest `eth0`.
-3. Guest IP/gateway/MAC come from the CNI result. **`tc-redirect-tap` is required.**
-4. NFS exports are created after the address is known, so they can be scoped to the guest, and use the CNI gateway as the NFS server address.
-5. On stop/cleanup, fcvm runs CNI DEL and removes the netns (no TAP teardown).
+1. fcvm validates the conflist and its plugin binaries up front (see [Preflight validation](#preflight-validation)) before touching any host state.
+2. Skip TAP setup and rootfs network patching.
+3. firecracker-go-sdk creates `/var/run/netns/<VMID>`, runs CNI ADD, and passes `--netns` to the jailer. Interface names: host `veth0`, guest `eth0`.
+4. Guest IP/gateway/MAC come from the CNI result. **`tc-redirect-tap` is required** — it is the plugin that actually produces the tap device Firecracker attaches to and fills in the VM's static network config.
+5. NFS exports are created after the address is known, so they can be scoped to the guest, and use the CNI gateway as the NFS server address. **The plugin chain's IPAM must publish a gateway** — if it doesn't, `start` fails an NFS mount rather than exporting to the guest's own (meaningless) address.
+6. On stop/cleanup, fcvm runs CNI DEL and removes the netns (no TAP teardown).
 
-`cni-network` must match the `name` field in the CNI conflist.
+`cni-network` must match the `name` field in the CNI conflist, and `--cni-network` requires `--enable-experimental` (or confirmation at the prompt — see `fcvm experimental`).
 
-### Host prerequisites
+### Prerequisites
 
-Plugins under `/opt/cni/bin`:
+Install these under `/opt/cni/bin` (fcvm's default CNI bin dir) before using CNI mode:
 
-- `ptp`
-- `host-local`
-- `firewall`
-- `tc-redirect-tap`
+| Plugin | Source | Role |
+|--------|--------|------|
+| `ptp` | [containernetworking/plugins](https://github.com/containernetworking/plugins) release tarball | Creates the host-side veth pair, and (with `ipMasq: true`) NATs guest traffic out the host's default interface |
+| `host-local` | same tarball | IPAM: allocates the guest IP and gateway from a static subnet |
+| `firewall` | same tarball | Isolates the veth from other host interfaces (equivalent in spirit to fcvm's own `FCVM` iptables chain in TAP mode) |
+| `tc-redirect-tap` | **not** in the containernetworking/plugins tarball — build it from `firecracker-go-sdk`'s own `cni/` module (`go build ./cni/cmd/tc-redirect-tap` at the SDK's pinned version, or use a prebuilt binary matching that version) | Redirects the veth's traffic to a tap device and reports it back to the SDK as the VM's `StaticConfiguration` |
 
-Example conflist at `/etc/cni/conf.d/fcnet.conflist`:
+Also required: a conflist under `/etc/cni/conf.d` (default dir; see below), and — like everything else in fcvm — root, since network namespace creation needs `CAP_SYS_ADMIN`.
+
+### Conflist authoring
+
+fcvm invokes the whole plugin chain listed in the conflist's `"plugins"` array, in order. A minimal, working chain looks like this — save it as `/etc/cni/conf.d/fcnet.conflist`:
 
 ```json
 {
@@ -117,9 +126,58 @@ Example conflist at `/etc/cni/conf.d/fcnet.conflist`:
 }
 ```
 
+Reading it top to bottom: `ptp` sets up the link and, via its nested `ipam`, calls `host-local` to allocate an IP/gateway out of `subnet`; `firewall` then locks the new interface down; `tc-redirect-tap` runs last and turns the result into something Firecracker can actually use. `"name"` (`fcnet` here) is what you pass to `--cni-network`. To run multiple independent CNI networks, add more `.conflist` files with different `name`s and different, non-overlapping `subnet`s, and point different VMs at each by name.
+
+### First CNI VM walkthrough
+
 ```bash
-sudo ./fcvm start myvm --cni-network fcnet
+# 1. Install prerequisites (paths per the table above)
+#    ptp, host-local, firewall -> /opt/cni/bin (from the containernetworking/plugins release)
+#    tc-redirect-tap           -> /opt/cni/bin (built from firecracker-go-sdk's cni/ module)
+
+# 2. Write the conflist
+sudo mkdir -p /etc/cni/conf.d
+sudo tee /etc/cni/conf.d/fcnet.conflist >/dev/null <<'EOF'
+{ "name": "fcnet", "cniVersion": "0.3.1", "plugins": [
+  { "type": "ptp", "ipMasq": true, "ipam": { "type": "host-local", "subnet": "192.168.127.0/24", "resolvConf": "/etc/resolv.conf" } },
+  { "type": "firewall" },
+  { "type": "tc-redirect-tap" }
+] }
+EOF
+
+# 3. Start a VM against it
+sudo ./fcvm start myvm --cni-network fcnet --enable-experimental
+
+# 4. Verify (see docs/debug.md#cni-mode for more)
+ip netns list                    # "myvm" should be listed
+ip netns exec myvm ip -br addr   # guest-side veth/tap config as seen from the host netns
+
+# 5. Tear down
+sudo ./fcvm stop myvm
+ip netns list                    # "myvm" should be gone
 ```
+
+### Preflight validation
+
+Before `start` touches any host state, and as part of `fcvm self-check` when `network.cni-network` is configured, fcvm loads the named conflist and checks that every plugin binary it references (including the nested IPAM plugin, e.g. `host-local`) is present and executable under `/opt/cni/bin`, and that `tc-redirect-tap` is one of them. This turns a missing-plugin mistake into a clear error before `start`, instead of a raw error from deep inside CNI invocation after fcvm has already copied the rootfs and allocated a VM index.
+
+### Limitations
+
+These come from `firecracker-go-sdk`, not from fcvm, and apply regardless of the conflist used:
+
+- **Single NIC only.** fcvm (like the SDK) only ever configures one network interface per VM.
+- **IPv4 only.**
+- **At most 2 nameservers** are propagated from the CNI result into the guest (matching the `ip=` kernel boot parameter's own limit).
+- **MTU is inherited** from whatever `tc-redirect-tap` set on the tap device it created — there is no fcvm-level MTU override for CNI mode (unlike TAP mode's `/30`, which has no MTU knob either, but for a different reason: it's just a point-to-point link).
+- **`tc-redirect-tap` is mandatory.** There is no other way for `StaticConfiguration` — and thus the VM's guest IP/gateway/MAC — to get filled in after CNI ADD.
+- **NFS mounts need a gateway.** If the conflist's IPAM plugin doesn't publish one, `start` fails any NFS (`--mount`) with a clear error rather than silently exporting to the wrong address; block mounts are unaffected since they don't depend on the network.
+
+### Troubleshooting
+
+- `fcvm experimental` lists every experimental command/flag, including `--cni-network`; pass `--enable-experimental` to skip the confirmation prompt.
+- A preflight error naming missing plugin binaries or a missing `tc-redirect-tap` (see above) means the conflist or `/opt/cni/bin` needs fixing — it does not mean anything was left behind on the host.
+- For inspecting a running (or stuck) CNI VM's namespace, tap, and CNI cache state, see [docs/debug.md](debug.md#cni-mode) (`ip netns list`, `ip netns exec <id> ...`, `/var/lib/cni/<id>`).
+- If `stop`/`cleanup` is interrupted (crash, `kill -9`, host reboot) before it runs, the netns mount and CNI cache under `/var/lib/cni/<id>` can be left behind; `ip netns del <id>` and `rm -rf /var/lib/cni/<id>` (see [docs/debug.md](debug.md)) clean them up manually. Neither networking mode auto-reclaims orphaned state today — TAP has the same manual-cleanup requirement for its own devices and rules, documented alongside this in debug.md.
 
 ## Guest boot networking
 

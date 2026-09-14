@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/pminnebach/fcvm/network"
 	"github.com/pminnebach/fcvm/vm"
 )
 
@@ -24,6 +25,11 @@ var selfCheckCmd = &cobra.Command{
 		c, err := loadConfig()
 		if err != nil {
 			return err
+		}
+		if c.Network.CNINetwork != "" {
+			if err := network.ValidateCNIPrereqs(c.Network.CNINetwork); err != nil {
+				return fmt.Errorf("cni preflight: %w", err)
+			}
 		}
 		mgr := vm.NewManager(c)
 		id := "selfcheck"

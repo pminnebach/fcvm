@@ -118,7 +118,7 @@ Build an ext4 image from a Dockerfile. See [rootfs.md](rootfs.md).
 
 ## `fcvm self-check`
 
-Starts and stops a VM named `selfcheck` if `/dev/kvm` exists and the process is root. Skips (exit 0) when KVM is absent.
+Starts and stops a VM named `selfcheck` if `/dev/kvm` exists and the process is root. Skips (exit 0) when KVM is absent. If `network.cni-network` is configured, also runs the CNI preflight check (see [network.md](network.md#preflight-validation)) before attempting the start.
 
 ## `fcvm version`
 
