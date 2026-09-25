@@ -25,9 +25,15 @@ RUN apt-get update \
     shellcheck \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/*
+
+# Install pnpm
+RUN wget -qO- https://get.pnpm.io/install.sh | ENV="$HOME/.shrc" SHELL="$(which sh)" sh -
+
+# Copy additional files
+COPY files/install-docker.sh /root/scripts/install-docker.sh
   
 # Install golang
-ENV GO_VERSION=1.26.5
+ENV GO_VERSION=1.27.1
 RUN wget -q https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz \
   && rm -rf /usr/local/go \
   && tar -C /usr/local -xzf go${GO_VERSION}.linux-amd64.tar.gz \
@@ -63,9 +69,3 @@ RUN printf '%s\n' \
 
 # Install ChatGPT Codex terminal
 RUN curl -fsSL https://chatgpt.com/codex/install.sh | sh
-
-# Install pnpm
-RUN wget -qO- https://get.pnpm.io/install.sh | ENV="$HOME/.shrc" SHELL="$(which sh)" sh -
-
-COPY files/install-docker.sh /root/scripts/install-docker.sh
-# RUN chmod 755 /root/scripts/install-docker.sh
