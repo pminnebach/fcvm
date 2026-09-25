@@ -51,7 +51,18 @@ RUN (type -p wget >/dev/null || (apt-get update && apt-get install wget -y)) \
 
 # Install Claude Code terminal
 RUN curl -fsSL https://claude.ai/install.sh | bash \
-  && echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
+  && echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+
+# Pretend Claude has already run before
+RUN printf '%s\n' \
+    '{' \
+    '  "hasCompletedOnboarding": true' \
+    '}' \
+    > /root/.claude.json \
+    && chmod 600 /root/.claude.json
+
+# Install ChatGPT Codex terminal
+RUN curl -fsSL https://chatgpt.com/codex/install.sh | sh
 
 # Install pnpm
 RUN wget -qO- https://get.pnpm.io/install.sh | ENV="$HOME/.shrc" SHELL="$(which sh)" sh -
