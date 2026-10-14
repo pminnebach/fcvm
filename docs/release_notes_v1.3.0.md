@@ -22,6 +22,8 @@ Stopped VMs can now be started again.
 
 - Firecracker's console no longer goes to the terminal `fcvm start` was run from. The guest's serial output used to print into your shell, and under `sudo` it was written to a pseudo-terminal that disappears when `fcvm` exits. It now goes to `<state-dir>/vms/<id>/console.log`, appended across boots.
 
+- A VM could die moments after `fcvm start` returned. The Firecracker SDK stops the VM when the context it was started with is cancelled, and the command's context is cancelled as soon as the command returns, so whether the VM survived depended on a race with the process exiting. Firecracker is now started with a context that outlives the command. Ctrl+C while `start` is waiting for the guest still stops the VM: a VM being created is removed, and one being restarted goes back to `stopped`.
+
 ### Things to know
 
 - `fcvm cleanup --all` removes the same things as `delete`, so it deletes stopped VMs and their disks too.

@@ -540,7 +540,13 @@ func (m *Manager) boot(ctx context.Context, p bootPlan, unlock func()) (*State, 
 		return nil, fmt.Errorf("open console log: %w", err)
 	}
 	fcCfg.JailerCfg.Stdout, fcCfg.JailerCfg.Stderr = console, console
-	l, err := m.ops.launch(ctx, fcCfg, m.log, slot.useCNI)
+	// The SDK stops the VM, and exec.CommandContext kills it, as soon as the
+	// context it was started with is cancelled ("The context must not be
+	// cancelled while the microVM is running"). The command's context is
+	// cancelled the moment `fcvm start` returns, so passing it through races
+	// the VM's death against the process exiting. Interrupts during boot are
+	// handled below instead.
+	l, err := m.ops.launch(context.WithoutCancel(ctx), fcCfg, m.log, slot.useCNI)
 	// The child holds its own copy of the descriptor.
 	_ = console.Close()
 	if err != nil {
@@ -642,6 +648,9 @@ func (m *Manager) boot(ctx context.Context, p bootPlan, unlock func()) (*State, 
 
 	timeout := time.Duration(m.cfg.WaitTimeoutSec) * time.Second
 	if err := m.ops.waitSSH(ctx, guestIP, p.keyPath, timeout); err != nil {
+		if ctx.Err() != nil {
+			return m.abortBoot(p, state, ctx.Err())
+		}
 		m.log.Warnf("guest ssh not ready: %v", err)
 	} else if len(mountRecords) > 0 {
 		// The host knows the whole mount table; push it and let the guest
@@ -654,6 +663,25 @@ func (m *Manager) boot(ctx context.Context, p bootPlan, unlock func()) (*State, 
 	go m.waitVM(context.WithoutCancel(ctx), l, id)
 
 	return state, nil
+}
+
+// abortBoot undoes a start the user interrupted after the VM was launched. A
+// VM that was being created is removed; one that was being restarted goes back
+// to stopped, since the user asked for it to stop, not for it to crash.
+func (m *Manager) abortBoot(p bootPlan, state *State, cause error) (*State, error) {
+	// The state lock was released once the index was claimed.
+	if unlock, err := lockState(m.cfg.StateDir); err == nil {
+		defer unlock()
+	}
+	if err := m.stopVMProcess(state); err != nil {
+		return nil, errors.Join(cause, err)
+	}
+	_ = removeRuntimeState(m.cfg.StateDir, p.id)
+	p.rollback()
+	if p.started != nil { // only a restart has a VM to go back to
+		_ = SaveStopRecord(m.cfg.StateDir, p.id, time.Now())
+	}
+	return nil, cause
 }
 
 // setupMounts creates NFS exports now that the guest address is known, and

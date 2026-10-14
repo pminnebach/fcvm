@@ -42,6 +42,8 @@ type testHost struct {
 	synced     [][2]string // block image, host directory
 
 	consoleFiles []string // files Firecracker's stdout/stderr were pointed at, per launch
+	stdins       []string // what Firecracker's stdin was pointed at, per launch ("" if not a file)
+	launchCtxs   []context.Context
 }
 
 func (h *testHost) commands() []string {
@@ -155,8 +157,14 @@ func newTestManager(t *testing.T) (*Manager, *testHost) {
 		pushMounts: func(string, string, string) error { return nil },
 		launch: func(ctx context.Context, fc firecracker.Config, _ *logrus.Entry, cni bool) (*launched, error) {
 			h.launches++
+			h.launchCtxs = append(h.launchCtxs, ctx)
 			// Behave like the jailer: whatever fcvm hands over as stdout/stderr
 			// receives the serial console.
+			stdin := ""
+			if in, ok := fc.JailerCfg.Stdin.(*os.File); ok {
+				stdin = in.Name()
+			}
+			h.stdins = append(h.stdins, stdin)
 			if out, ok := fc.JailerCfg.Stdout.(*os.File); ok {
 				h.consoleFiles = append(h.consoleFiles, out.Name())
 				_, _ = out.WriteString("serial: boot " + strconv.Itoa(h.launches) + "\n")

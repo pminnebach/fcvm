@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -806,4 +807,97 @@ func TestCreationFailsCleanlyIfTheConsoleLogCannotBeOpened(t *testing.T) {
 	if exists(t, vmDir) {
 		t.Fatal("a failed creation must not leave the VM behind")
 	}
+}
+
+// --- the VM must outlive the command that started it ---
+
+// The SDK stops the VM when the context it was started with is cancelled (and
+// exec.CommandContext kills it). The command's context is cancelled as soon as
+// `fcvm start` returns, so handing it to the SDK races the VM's death against
+// the process exiting.
+func TestFirecrackerIsNotTiedToTheCommandContext(t *testing.T) {
+	m, h := newTestManager(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	if _, err := m.Start(ctx, "web"); err != nil {
+		t.Fatal(err)
+	}
+	cancel() // what `defer stop()` in Execute does when the command returns
+
+	if len(h.launchCtxs) != 1 || h.launchCtxs[0].Err() != nil {
+		t.Fatal("the context given to Firecracker was cancelled with the command's; the SDK would stop the VM")
+	}
+	if got := statusOf(t, m, "web"); got != StatusRunning {
+		t.Fatalf("status = %s", got)
+	}
+}
+
+func TestInterruptDuringACreationStopsTheVMAndRemovesIt(t *testing.T) {
+	m, h := newTestManager(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	m.ops.waitSSH = func(ctx context.Context, _, _ string, _ time.Duration) error {
+		cancel() // Ctrl+C while waiting for the guest
+		return ctx.Err()
+	}
+
+	_, err := m.Start(ctx, "web")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v", err)
+	}
+	proc := h.procs["web"]
+	if proc == nil || (&State{PID: proc.Process.Pid}).IsRunning() && waitProcGone(proc.Process.Pid) != nil {
+		t.Fatal("the VM was left running after the interrupt")
+	}
+	if exists(t, filepath.Join(m.cfg.StateDir, "vms", "web")) {
+		t.Fatal("an interrupted creation must not leave a VM behind")
+	}
+}
+
+func TestInterruptDuringARestartLeavesTheVMStoppedWithItsDisk(t *testing.T) {
+	m, h := newTestManager(t)
+	mustStart(t, m, "web")
+	disk := filepath.Join(m.cfg.StateDir, "vms", "web", "rootfs.ext4")
+	if err := os.WriteFile(disk, []byte("guest data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Stop("web"); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	m.ops.waitSSH = func(ctx context.Context, _, _ string, _ time.Duration) error {
+		cancel()
+		return ctx.Err()
+	}
+
+	if _, err := m.Start(ctx, "web"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v", err)
+	}
+	if data, _ := os.ReadFile(disk); string(data) != "guest data" {
+		t.Fatalf("disk = %q", data)
+	}
+	info, err := Inspect(m.cfg.StateDir, "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Status != StatusStopped || info.StoppedAt.IsZero() {
+		t.Fatalf("status %s stoppedAt %v; an interrupted restart is a stop, not a crash", info.Status, info.StoppedAt)
+	}
+	if info.State != nil {
+		t.Fatal("runtime state left behind")
+	}
+	proc := h.procs["web"]
+	if waitProcGone(proc.Process.Pid) != nil {
+		t.Fatal("the VM was left running after the interrupt")
+	}
+}
+
+// waitProcGone waits for a pid to disappear from /proc.
+func waitProcGone(pid int) error {
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat("/proc/" + strconv.Itoa(pid)); err != nil {
+			return nil
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return errors.New("still running")
 }
