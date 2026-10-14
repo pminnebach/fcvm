@@ -3,6 +3,7 @@ package vm
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -116,6 +117,9 @@ func newTestManager(t *testing.T) (*Manager, *testHost) {
 	t.Cleanup(restore)
 
 	m := NewManager(cfg)
+	quiet := logrus.New()
+	quiet.SetOutput(io.Discard)
+	m.log = logrus.NewEntry(quiet)
 	m.ops = hostOps{
 		euid:            func() int { return 0 },
 		defaultIface:    func() (string, error) { return "eth0", nil },

@@ -165,8 +165,15 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 	}
 	defer unlock()
 
-	if info, err := Inspect(m.cfg.StateDir, id); err == nil {
+	// Only a VM that does not exist is created. A record that cannot be read is
+	// not "no such VM": creating over it would fail and the failure path would
+	// delete the directory, and with it the disk the user wanted back.
+	info, err := Inspect(m.cfg.StateDir, id)
+	switch {
+	case err == nil:
 		return m.startExisting(ctx, info, unlock)
+	case !errors.Is(err, os.ErrNotExist):
+		return nil, err
 	}
 	m.removeJailerTree(id)
 
@@ -180,6 +187,14 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 	if err := os.MkdirAll(vmDir, 0o755); err != nil {
 		return nil, err
 	}
+	// Until the configuration record exists the directory is ours alone, so a
+	// failure before then must not leave an empty VM behind.
+	ownsDir := true
+	defer func() {
+		if ownsDir {
+			_ = RemoveState(m.cfg.StateDir, id)
+		}
+	}()
 	if err := os.MkdirAll(m.cfg.Jailer.ChrootBaseDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create jailer chroot base %q: %w", m.cfg.Jailer.ChrootBaseDir, err)
 	}
@@ -236,9 +251,15 @@ func (m *Manager) Start(ctx context.Context, id string) (*State, error) {
 		JailerGID:   gid,
 		CreatedAt:   time.Now(),
 	}); err != nil {
-		_ = RemoveState(m.cfg.StateDir, id)
+		// A record that is already there belongs to another VM, not to this
+		// attempt, so its directory must not be removed.
+		if errors.Is(err, fs.ErrExist) {
+			ownsDir = false
+		}
 		return nil, err
 	}
+	// From here a failure is rolled back through fail, which removes the VM.
+	ownsDir = false
 
 	// A failed creation removes the whole VM; nothing of it was ever running.
 	fail := func(err error) (*State, error) {
@@ -944,11 +965,19 @@ func (m *Manager) nextVMIndex() (int, error) {
 		return 0, err
 	}
 	claimed := ClaimedIndices(states)
-	infos, err := ListInfos(m.cfg.StateDir)
+	ids, err := ListVMDirIDs(m.cfg.StateDir)
 	if err != nil {
 		return 0, err
 	}
-	for _, info := range infos {
+	for _, id := range ids {
+		info, err := Inspect(m.cfg.StateDir, id)
+		if errors.Is(err, os.ErrNotExist) {
+			continue // an orphan directory claims nothing
+		}
+		if err != nil {
+			// Skipping it would free its index, and with it its guest IP.
+			return 0, fmt.Errorf("cannot allocate a network slot while the records of VM %q are unreadable: %w", id, err)
+		}
 		if info.Config != nil {
 			claimed[info.Config.Index] = true
 		}

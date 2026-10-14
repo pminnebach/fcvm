@@ -491,3 +491,78 @@ func TestCNIGuestAddressIsResolvedAtEachStart(t *testing.T) {
 		t.Fatalf("a CNI VM must not record an address it cannot promise: %+v", vc)
 	}
 }
+
+// --- unreadable records ---
+
+// A record that cannot be parsed is not "no such VM". Treating it as one sent
+// Start down the creation path, whose failure handling deletes the directory.
+func TestStartWithUnreadableRecordKeepsTheDisk(t *testing.T) {
+	for _, corrupt := range []string{configFile, "state.json"} {
+		t.Run(corrupt, func(t *testing.T) {
+			m, _ := newTestManager(t)
+			mustStart(t, m, "web")
+			disk := filepath.Join(m.cfg.StateDir, "vms", "web", "rootfs.ext4")
+			if err := os.WriteFile(disk, []byte("guest data"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := m.Stop("web"); err != nil {
+				t.Fatal(err)
+			}
+			bad := filepath.Join(m.cfg.StateDir, "vms", "web", corrupt)
+			if err := os.WriteFile(bad, []byte("{not json"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			if _, err := m.Start(context.Background(), "web"); err == nil {
+				t.Fatal("expected an error")
+			}
+			if data, _ := os.ReadFile(disk); string(data) != "guest data" {
+				t.Fatalf("an unreadable record cost the user the disk: %q", data)
+			}
+			if data, _ := os.ReadFile(bad); string(data) != "{not json" {
+				t.Fatalf("the record was touched: %q", data)
+			}
+		})
+	}
+}
+
+// An unreadable record means the VM's index cannot be known. Allocating
+// around it would hand its index, and so its guest IP, to a new VM.
+func TestNewVMIsRefusedWhileARecordIsUnreadable(t *testing.T) {
+	m, _ := newTestManager(t)
+	a := mustStart(t, m, "a")
+	if err := m.Stop("a"); err != nil {
+		t.Fatal(err)
+	}
+	bad := filepath.Join(m.cfg.StateDir, "vms", "a", configFile)
+	if err := os.WriteFile(bad, []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := m.Start(context.Background(), "b")
+	if err == nil {
+		t.Fatalf("a new VM must not be created while %q is unreadable (index %d)", "a", a.Index)
+	}
+	if !strings.Contains(err.Error(), `"a"`) {
+		t.Fatalf("the error should name the unreadable VM: %v", err)
+	}
+	if exists(t, filepath.Join(m.cfg.StateDir, "vms", "b")) {
+		t.Fatal("a failed allocation left a VM behind")
+	}
+}
+
+func TestListStillShowsOtherVMsWhenOneIsUnreadable(t *testing.T) {
+	m, _ := newTestManager(t)
+	mustStart(t, m, "a")
+	mustStart(t, m, "b")
+	if err := os.WriteFile(filepath.Join(m.cfg.StateDir, "vms", "a", configFile), []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	infos, err := m.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(infos) != 1 || infos[0].ID != "b" {
+		t.Fatalf("infos = %+v", infos)
+	}
+}
