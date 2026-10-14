@@ -6,8 +6,8 @@
 
 **Status:** ready-for-agent
 
-- [ ] `start` on a crashed VM succeeds without running `cleanup` first
-- [ ] Leftover TAP, rules, exports and jailer tree from the crash are removed before boot
-- [ ] `stop` on a crashed VM leaves it `stopped` with a stop record and no leftover resources
-- [ ] A failed recovery leaves the disk and configuration intact
-- [ ] Manager tests simulate a crash by leaving runtime state and a dead process
+- [x] `start` on a crashed VM succeeds without running `cleanup` first
+- [x] Leftover TAP, rules, exports and jailer tree from the crash are removed before boot
+- [x] `stop` on a crashed VM leaves it `stopped` with a stop record and no leftover resources
+- [x] A failed recovery leaves the disk and configuration intact
+- [x] Manager tests simulate a crash by leaving runtime state and a dead process

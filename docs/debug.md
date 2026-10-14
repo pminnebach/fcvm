@@ -167,6 +167,7 @@ Fields worth knowing when debugging:
 | `index` | Drives the TAP name, the `/30`, and the per-VM jailer uid. Two VMs sharing one is a bug |
 | `pid` + `pid_start` | `pid_start` is field 22 of `/proc/<pid>/stat`; fcvm compares it before signalling so it never kills a recycled pid |
 | `tap_dev`, `host_iface`, `guest_subnet` | Exactly what teardown will remove from the firewall |
+| `config.json` | The VM's saved shape. If `state.json` is gone but this and `stopped.json` remain, the VM is stopped. `state.json` with no `stopped.json` and a dead pid is a crash |
 | `mounts[].method` / `.device` | `block` mounts are copies synced back on stop; `.device` is the image holding the guest's writes |
 
 To check the pid identity by hand — this is the comparison `fcvm list` makes:

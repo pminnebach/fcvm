@@ -6,8 +6,8 @@
 
 **Status:** ready-for-agent
 
-- [ ] `exec` and `shell` on a stopped VM name the status and suggest `start <id>`
-- [ ] The same holds for a crashed VM
-- [ ] A legacy VM's message says it cannot be restarted and suggests `cleanup`
-- [ ] An unknown id still reports that the VM does not exist
-- [ ] cmd tests cover each status
+- [x] `exec` and `shell` on a stopped VM name the status and suggest `start <id>`
+- [x] The same holds for a crashed VM
+- [x] A legacy VM's message says it cannot be restarted and suggests `cleanup`
+- [x] An unknown id still reports that the VM does not exist
+- [x] cmd tests cover each status

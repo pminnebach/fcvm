@@ -6,8 +6,8 @@
 
 **Status:** ready-for-agent
 
-- [ ] `restart` on a running VM leaves it running again with its disk preserved
-- [ ] `restart` on a stopped VM starts it
-- [ ] `restart` on an unknown id fails with a "no such VM" error and creates nothing
-- [ ] `--mount` and `--env` are not accepted by `restart`
-- [ ] Manager and cmd tests cover running, stopped and unknown ids
+- [x] `restart` on a running VM leaves it running again with its disk preserved
+- [x] `restart` on a stopped VM starts it
+- [x] `restart` on an unknown id fails with a "no such VM" error and creates nothing
+- [x] `--mount` and `--env` are not accepted by `restart`
+- [x] Manager and cmd tests cover running, stopped and unknown ids

@@ -6,11 +6,11 @@
 
 **Status:** ready-for-agent
 
-- [ ] A stopped VM starts from its preserved disk and files written before the stop are still there
-- [ ] The restarted VM has the same configuration and, in TAP mode, the same guest IP
-- [ ] The stop record is removed once the VM is running
-- [ ] `--mount` or `--env` on an existing VM is rejected with a message explaining how to get a different shape
-- [ ] Starting a running VM fails without side effects
-- [ ] A failed restart leaves the VM `stopped` with its disk and configuration untouched
-- [ ] A failed creation still removes everything it created
-- [ ] Manager tests (Firecracker launch stubbed) and cmd tests for the flag rules cover the above
+- [x] A stopped VM starts from its preserved disk and files written before the stop are still there
+- [x] The restarted VM has the same configuration and, in TAP mode, the same guest IP
+- [x] The stop record is removed once the VM is running
+- [x] `--mount` or `--env` on an existing VM is rejected with a message explaining how to get a different shape
+- [x] Starting a running VM fails without side effects
+- [x] A failed restart leaves the VM `stopped` with its disk and configuration untouched
+- [x] A failed creation still removes everything it created
+- [x] Manager tests (Firecracker launch stubbed) and cmd tests for the flag rules cover the above

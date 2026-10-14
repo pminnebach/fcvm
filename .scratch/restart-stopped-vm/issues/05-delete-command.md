@@ -6,10 +6,10 @@
 
 **Status:** ready-for-agent
 
-- [ ] `delete` on a stopped VM removes everything and frees its index for reuse
-- [ ] `delete` on a running VM is refused without `--force`
-- [ ] `delete --force` on a running VM stops then deletes it
-- [ ] `delete` on an unknown id fails clearly
-- [ ] `cleanup` and `cleanup --all` still reclaim orphans with or without records
-- [ ] Ids are validated before use as path components on the new path
-- [ ] Manager and cmd tests cover stopped, running, forced, unknown and orphan cases
+- [x] `delete` on a stopped VM removes everything and frees its index for reuse
+- [x] `delete` on a running VM is refused without `--force`
+- [x] `delete --force` on a running VM stops then deletes it
+- [x] `delete` on an unknown id fails clearly
+- [x] `cleanup` and `cleanup --all` still reclaim orphans with or without records
+- [x] Ids are validated before use as path components on the new path
+- [x] Manager and cmd tests cover stopped, running, forced, unknown and orphan cases

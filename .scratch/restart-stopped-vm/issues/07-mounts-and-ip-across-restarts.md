@@ -6,9 +6,9 @@
 
 **Status:** ready-for-agent
 
-- [ ] A block mount image with guest-side changes survives stop and start unchanged
-- [ ] `stop` still mirrors writable block mounts to the host directory
-- [ ] NFS exports are recreated on start and scoped to the guest IP resolved for that boot
-- [ ] In CNI mode a changed guest IP leads to exports for the new IP
-- [ ] `list` shows the guest IP of a stopped TAP VM and `-` for a stopped CNI VM
-- [ ] Manager and `list` formatting tests cover the above
+- [x] A block mount image with guest-side changes survives stop and start unchanged
+- [x] `stop` still mirrors writable block mounts to the host directory
+- [x] NFS exports are recreated on start and scoped to the guest IP resolved for that boot
+- [x] In CNI mode a changed guest IP leads to exports for the new IP
+- [x] `list` shows the guest IP of a stopped TAP VM and `-` for a stopped CNI VM
+- [x] Manager and `list` formatting tests cover the above

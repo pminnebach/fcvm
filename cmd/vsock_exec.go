@@ -29,7 +29,7 @@ var vsockExecCmd = &cobra.Command{
 		if len(cmdArgs) == 0 {
 			return fmt.Errorf("missing command")
 		}
-		state, err := vm.LoadState(c.StateDir, id)
+		state, err := vm.RunningState(c.StateDir, id)
 		if err != nil {
 			return err
 		}

@@ -6,9 +6,9 @@
 
 **Status:** ready-for-agent
 
-- [ ] Creating a VM writes a configuration record that is never modified afterwards
-- [ ] The configuration record holds everything needed to boot the VM again without any flags
-- [ ] `list` shows `running` for a live VM, `crashed` for a dead process with a runtime state record, and `legacy` when there is no configuration record
-- [ ] A recycled PID is not reported as `running`
-- [ ] Stop, cleanup and failed-creation rollback use one teardown routine and behave as before
-- [ ] Manager-level and `list` formatting tests cover each status against a temp state directory
+- [x] Creating a VM writes a configuration record that is never modified afterwards
+- [x] The configuration record holds everything needed to boot the VM again without any flags
+- [x] `list` shows `running` for a live VM, `crashed` for a dead process with a runtime state record, and `legacy` when there is no configuration record
+- [x] A recycled PID is not reported as `running`
+- [x] Stop, cleanup and failed-creation rollback use one teardown routine and behave as before
+- [x] Manager-level and `list` formatting tests cover each status against a temp state directory

@@ -10,7 +10,7 @@ import (
 
 var startCmd = &cobra.Command{
 	Use:   "start [id]",
-	Short: "Start a Firecracker microVM (always via jailer)",
+	Short: "Start a Firecracker microVM (always via jailer), or boot a stopped one again",
 	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		c, err := loadConfig()
@@ -24,6 +24,13 @@ var startCmd = &cobra.Command{
 		mounts, err := cmd.Flags().GetStringArray("mount")
 		if err != nil {
 			return err
+		}
+		// An existing VM keeps the shape it was created with, so flags that
+		// would change it are an error rather than silently ignored.
+		if _, err := vm.Inspect(c.StateDir, id); err == nil && id != "" {
+			if len(mounts) > 0 || cmd.Flags().Changed("env") {
+				return fmt.Errorf("VM %q already exists and keeps its saved configuration; --mount and --env only apply when a VM is created. Run `fcvm delete %s` and start it again to change them", id, id)
+			}
 		}
 		for _, m := range mounts {
 			mc, err := mountFlag(m)
