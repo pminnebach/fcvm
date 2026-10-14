@@ -132,6 +132,10 @@ func launchFirecracker(ctx context.Context, cfg firecracker.Config, log *logrus.
 	return l, nil
 }
 
+// consoleLogFile is where Firecracker's stdout and stderr go, inside the VM's
+// directory: the guest's serial console and any jailer error.
+const consoleLogFile = "console.log"
+
 // pendingMount is a mount whose guest-side record is only known once the VM
 // has an address (NFS) or a drive letter (block).
 type pendingMount struct {
@@ -526,7 +530,19 @@ func (m *Manager) boot(ctx context.Context, p bootPlan, unlock func()) (*State, 
 		JailerGID:   slot.jailerGID,
 	})
 
+	// Firecracker's stdout carries the guest's serial console, and the jailer's
+	// own errors go to stderr. Neither may be the terminal fcvm was run from:
+	// that terminal (a pty under sudo) is gone when fcvm exits. Append, so the
+	// log of an earlier boot is still there to read when a VM dies.
+	console, err := os.OpenFile(filepath.Join(m.cfg.VMStateDir(id), consoleLogFile), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		p.rollback()
+		return nil, fmt.Errorf("open console log: %w", err)
+	}
+	fcCfg.JailerCfg.Stdout, fcCfg.JailerCfg.Stderr = console, console
 	l, err := m.ops.launch(ctx, fcCfg, m.log, slot.useCNI)
+	// The child holds its own copy of the descriptor.
+	_ = console.Close()
 	if err != nil {
 		p.rollback()
 		return nil, err

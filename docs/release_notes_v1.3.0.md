@@ -18,6 +18,10 @@ Stopped VMs can now be started again.
 - A stopped VM keeps its network index, so in TAP mode it comes back on the same guest IP and a new VM cannot take it. In CNI mode the address is assigned at each start.
 - Per-VM records are now split: `config.json` (written once), `state.json` (while running) and `stopped.json`.
 
+### Fixes
+
+- Firecracker's console no longer goes to the terminal `fcvm start` was run from. The guest's serial output used to print into your shell, and under `sudo` it was written to a pseudo-terminal that disappears when `fcvm` exits. It now goes to `<state-dir>/vms/<id>/console.log`, appended across boots.
+
 ### Things to know
 
 - `fcvm cleanup --all` removes the same things as `delete`, so it deletes stopped VMs and their disks too.

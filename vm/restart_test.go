@@ -759,3 +759,51 @@ func TestStopDeleteRestartAndCleanupTakeTheStateLock(t *testing.T) {
 		})
 	}
 }
+
+// --- the console is not the terminal ---
+
+// Firecracker's stdout carries the guest's serial console. Left pointing at
+// the terminal fcvm was started from, the guest's output lands in the user's
+// shell, and writes go to a terminal that is gone once fcvm (and sudo's pty)
+// exit.
+func TestConsoleOutputGoesToALogFileNotTheTerminal(t *testing.T) {
+	m, h := newTestManager(t)
+	mustStart(t, m, "web")
+	want := filepath.Join(m.cfg.StateDir, "vms", "web", "console.log")
+
+	if len(h.consoleFiles) != 1 || h.consoleFiles[0] != want {
+		t.Fatalf("Firecracker's stdout was %v, want the VM's console log %s", h.consoleFiles, want)
+	}
+
+	// A restart appends: the log of an earlier boot is what you read to see
+	// why the VM died.
+	if err := m.Stop("web"); err != nil {
+		t.Fatal(err)
+	}
+	mustStart(t, m, "web")
+	data, err := os.ReadFile(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "serial: boot 1") || !strings.Contains(string(data), "serial: boot 2") {
+		t.Fatalf("console log = %q", data)
+	}
+}
+
+func TestCreationFailsCleanlyIfTheConsoleLogCannotBeOpened(t *testing.T) {
+	m, h := newTestManager(t)
+	// A directory where the log file should be.
+	vmDir := filepath.Join(m.cfg.StateDir, "vms", "web")
+	if err := os.MkdirAll(filepath.Join(vmDir, "console.log"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Start(context.Background(), "web"); err == nil {
+		t.Fatal("expected an error")
+	}
+	if h.launches != 0 {
+		t.Fatal("Firecracker must not be launched without somewhere to send its console")
+	}
+	if exists(t, vmDir) {
+		t.Fatal("a failed creation must not leave the VM behind")
+	}
+}

@@ -62,6 +62,7 @@ Default state directory: `~/.fcvm` (respects `SUDO_USER` home when run under sud
     config.json       # VM configuration, written once at creation
     state.json        # runtime metadata, present only while the VM runs (or crashed)
     stopped.json      # written by a deliberate stop, removed on the next start
+    console.log       # Firecracker's stdout/stderr: the guest serial console and jailer errors (appended across boots)
 ```
 
 `config.json` is the shape the VM was created with (machine knobs, network mode, network index and resolved TAP addresses, mounts, env, vsock, jailer settings). It is never modified, and a restart reuses it, so a flag or config change cannot drift a VM away from the disk it was provisioned on. It also keeps the VM's network index claimed while it is stopped.
