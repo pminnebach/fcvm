@@ -59,8 +59,15 @@ Default state directory: `~/.fcvm` (respects `SUDO_USER` home when run under sud
   vms/<id>/
     rootfs.ext4       # per-VM copy of the template rootfs
     mount-<n>.ext4    # block-method mount images
-    state.json        # runtime metadata
+    config.json       # VM configuration, written once at creation
+    state.json        # runtime metadata, present only while the VM runs (or crashed)
+    stopped.json      # written by a deliberate stop, removed on the next start
+    console.log       # Firecracker's stdout/stderr: the guest serial console and jailer errors (appended across boots)
 ```
+
+`config.json` is the shape the VM was created with (machine knobs, network mode, network index and resolved TAP addresses, mounts, env, vsock, jailer settings). It is never modified, and a restart reuses it, so a flag or config change cannot drift a VM away from the disk it was provisioned on. It also keeps the VM's network index claimed while it is stopped.
+
+A VM's status is derived from these files and the live process, never stored: `running` (process alive, identified by PID plus start time), `stopped` (stop record, no process), `crashed` (runtime state but no stop record and no process), `legacy` (runtime state but no `config.json`; created before VMs could be restarted), `incomplete` (`config.json` only: creation never got as far as booting, so the disk may be half built and is never started).
 
 `state.json` records id, network index, pid and its `/proc` start time, socket, network mode (tap/cni), tap device, host egress interface, guest subnet, guest IP/MAC, SSH key path, chroot/log paths, optional vsock UDS/CID (when started with `--enable-vsock`), jailer uid/gid, mounts, and env.
 
@@ -71,9 +78,9 @@ VM ids are validated before they are used as path components: letters, digits, `
 `vm.Manager.Start` (must be root):
 
 1. Validate the id and config; take the state lock.
-2. Reject if `state.json` already exists; wipe leftover jailer tree for the ID.
+2. If the VM already exists, take the restart path below instead; otherwise wipe any leftover jailer tree for the ID.
 3. Require firecracker, jailer, kernel, and rootfs on disk.
-4. Allocate the lowest free VM index → TAP subnet (or CNI) and jailer uid/gid.
+4. Allocate the lowest free VM index → TAP subnet (or CNI) and jailer uid/gid; write `config.json`, which claims the index.
 5. Copy template rootfs → `vms/<id>/rootfs.ext4`; in one loop mount, inject hooks, SSH authorized keys, env, and (TAP mode) `/etc/fcvm/network`; when `enable-vsock` is set, also inject the guest vsock agent; `chown` for the jailer.
 6. Set up TAP and this VM's firewall rules (or defer networking to the SDK CNI path); build any `method=block` mount images.
 7. Build Firecracker config (drives, machine knobs, MMDS v2, NIC, optional vsock device, full `JailerCfg`) → `NewMachine` → `Start`.
@@ -85,10 +92,15 @@ Env is baked into the rootfs at step 5, so it survives reboots and does not depe
 
 If no VM id is given, fcvm generates `vm-<unix-timestamp>`.
 
-## Stop and cleanup
+## Stop, restart, delete and cleanup
 
-- **Stop:** confirm the PID is still this VM (PID plus `/proc` start time), SIGTERM, poll until `stop-timeout`, SIGKILL only if still alive; mirror writable block mounts back to their host directories; tear down TAP rules or CNI+netns; unexport NFS; remove jailer tree and VM state dir. When the last VM goes, remove the `FCVM` chain and restore `ip_forward`.
-- **Cleanup:** same teardown; works with or without `state.json` (best-effort orphans). `cleanup --all` walks all VMs under the state dir.
+- **Stop:** under the state lock (as are delete, cleanup and the stop half of restart, so they cannot race a start that is mid-creation). Confirm the PID is still this VM (PID plus `/proc` start time), SIGTERM, poll until `stop-timeout`, SIGKILL only if still alive, then wait again; if the process is still there the stop fails and nothing else is touched. Mirror writable block mounts (for a crashed VM only if `e2fsck -fn` passes) back to their host directories; tear down TAP rules or CNI+netns; unexport NFS; remove the jailer tree. Then write `stopped.json` and remove `state.json`, in that order, so a stop interrupted partway still reads as `crashed`. The disk, block images, `config.json` and the network index are kept. When no VM is running any more, remove the `FCVM` chain and restore `ip_forward`: a stopped VM holds no host networking.
+- **Start of an existing VM (stopped or crashed):** load `config.json` and use its saved shape (current config still supplies binaries, kernel and state dir); for a crash, tear down the leftovers first; skip the rootfs copy and patch, and reuse block mount images instead of rebuilding them from the host directory; set up the same index, TAP addresses and jailer uid; boot; create NFS exports against the guest address of this boot (in CNI mode it may differ from last time); write `state.json`; then remove `stopped.json`. A failure before that point releases only what this attempt took and leaves the VM stopped with its disk intact. Firecracker is launched with a context that is not cancelled when the command returns (the SDK stops the VM on cancellation); Ctrl+C while waiting for the guest stops the VM explicitly, removing it if it was being created and leaving it `stopped` if it was being restarted. A failed *creation* still removes everything.
+- **Restart:** stop if running, then start.
+- **Delete:** the same full teardown as cleanup, plus removing the VM directory, which frees its index. Refuses a running VM without `--force`.
+- **Cleanup:** same teardown as delete; works with or without records (best-effort orphans). `cleanup --all` walks all VMs under the state dir, stopped ones included.
+
+Restart is a cold boot from the preserved disk, not a Firecracker snapshot restore; see [ADR 0001](adr/0001-stop-preserves-the-vm.md).
 
 ## Guest bootstrap
 

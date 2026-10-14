@@ -18,6 +18,7 @@
 
 ## Done
 
+- [x] Restart a stopped VM: `stop` keeps the disk, `start <id>` / `restart` boot it again, `delete` removes it, `list` tells stopped from crashed (see [.scratch/restart-stopped-vm/spec.md](.scratch/restart-stopped-vm/spec.md), [ADR 0001](docs/adr/0001-stop-preserves-the-vm.md)). Real-hardware smoke test still to run.
 - [x] Add parameter to change rootfs size at build.
 - [x] Rewrite docs into docs/ (architecture, network, kernel, rootfs, install, cli, configuration) and slim README.
 - [x] Add architecture / config / ~/.fcvm layout docs (see docs/).

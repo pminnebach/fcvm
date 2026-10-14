@@ -36,6 +36,10 @@ VM ids must be a single path component of letters, digits, `-`, `_` and `.`, at 
 
 Start a microVM via jailer. If `id` is omitted (and `--id` unset), generates `vm-<unix-timestamp>`.
 
+If a VM with that id already exists and is **stopped** (you stopped it) or **crashed**, `start` boots it again from its preserved disk with the configuration it was created with. Nothing is copied or rebuilt, so files and packages inside the guest are still there. A crashed VM's leftover TAP device, rules, exports and jail are torn down first. `--mount` and `--env` are rejected for an existing VM, because its shape is fixed at creation: `fcvm delete <id>` and start it again to change them. Starting a running VM, or a `legacy` VM (see `list`), is an error.
+
+This is a cold boot: processes that were running are not restored.
+
 | Flag | Meaning |
 |------|---------|
 | `--id` | VM identifier (alternative to positional arg) |
@@ -54,15 +58,37 @@ If NFS is unavailable, `start` fails rather than silently copying the directory 
 
 ## `fcvm stop <id>`
 
-SIGTERM the VM, wait up to `--stop-timeout` for it to exit, then SIGKILL. Mirrors writable block mounts back to their host directories, then tears down TAP/CNI, NFS, jailer tree, and state.
+SIGTERM the VM, wait up to `--stop-timeout` for it to exit, then SIGKILL. Mirrors writable block mounts back to their host directories, then tears down TAP/CNI, NFS and the jailer tree. **The VM's disk, configuration and network slot are kept**, so `fcvm start <id>` brings it back. Use `fcvm delete` to remove it.
+
+Stopping an already stopped VM succeeds without doing anything. Stopping a crashed VM tears down what the crash left behind and records the stop. If the VM's process is still alive after SIGKILL and another `--stop-timeout`, `stop` fails and leaves the VM exactly as it was: nothing is synced, torn down or deleted under a process that may still hold the disk.
+
+A crashed VM's writable block mount images are copied back to the host only if `e2fsck -fn` reports them clean, since the copy deletes host files that are missing from the image. Otherwise the host directory is left alone, a warning says so, and the image keeps the guest's writes for the next `start`. A `legacy` VM (created before VMs could be restarted) or an `incomplete` one has nothing to come back to, so `stop` deletes it.
+
+## `fcvm restart <id>`
+
+Stop the VM if it is running, then start it again from its disk. On a stopped or crashed VM it just starts it. An unknown id is an error: `restart` never creates a VM. It takes no `--mount` or `--env`.
+
+## `fcvm delete <id>`
+
+Remove a VM for good: its disk, block mount images, configuration and network slot (the slot can then go to a new VM). A running VM is refused unless you pass `--force`, which stops it first. If the VM crashed and its block images fail the check described under `stop`, they are not copied back and the guest's writes in them are lost with the VM; the warning says so.
 
 ## `fcvm list`
 
-Tabular list: ID, status, guest IP, PID, uptime. Status is `running` or `stopped`, determined from the process rather than from the state file existing, so a crashed VM shows as `stopped` (run `cleanup` to reclaim it).
+Tabular list: ID, status, guest IP, PID, uptime, stopped.
+
+| Status | Meaning |
+|--------|---------|
+| `running` | The recorded process is alive and is still this VM |
+| `stopped` | You stopped it; `STOPPED` shows how long ago. `fcvm start <id>` boots it again |
+| `crashed` | The process is gone but nobody stopped it. `fcvm start <id>` recovers it |
+| `legacy` | Created before VMs could be restarted; it cannot be started again. `fcvm cleanup <id>` removes it |
+| `incomplete` | Creation never finished, so the disk may be half built. It is never booted; `fcvm delete <id>` clears it |
+
+Status comes from comparing the records on disk with the real process, so it reflects what happened, not only what was last written. A stopped VM shows its guest IP in TAP mode, where the address is stable; in CNI mode the address is assigned at each start, so it shows `-`.
 
 ## `fcvm exec <id> -- <command…>`
 
-Run a command in the guest over SSH.
+Run a command in the guest over SSH. On a VM that is not running, `exec`, `shell`, `attach` and `vsock-exec` say whether it is stopped, crashed or legacy and how to proceed.
 
 ```bash
 sudo ./fcvm exec myvm -- uname -a
@@ -91,7 +117,7 @@ Tail the microVM serial log (`tail -f` style). Ctrl+C to exit.
 
 ## `fcvm cleanup [id]`
 
-Tear down resources for one VM, or `--all` for every VM under the state dir. Best-effort when `state.json` is missing.
+Remove one VM and everything it holds, or `--all` for every VM under the state dir. Best-effort when records are missing, so it also reclaims orphans. It removes the same things as `delete`, which means **`cleanup --all` deletes stopped VMs and their disks too**.
 
 ## `fcvm download`
 
