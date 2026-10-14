@@ -147,7 +147,7 @@ If NFS setup fails, `start` fails with an error naming `method=block`. It does *
 
 **Block (`method=block`).** Copies the host directory into an ext4 image attached as `/dev/vdb`, `/dev/vdc`, … The image is sized from the source tree unless `size=` is given. This is a copy, not a live mount:
 
-- writes are mirrored back to the host directory on `stop`, `delete` and `cleanup`;
+- writes are mirrored back to the host directory on `stop`, `delete` and `cleanup`. For a VM that crashed, this happens only if `e2fsck -fn` finds the image clean, because the mirror deletes host files that are missing from the image; otherwise the host directory is left alone and the image keeps the writes;
 - the image is kept while the VM is stopped and reused by the next `start`, so guest-side changes are not overwritten with older host content;
 - a `ro` mount is attached read-only and is not synced back;
 - files deleted in the guest are deleted on the host (mirror semantics);

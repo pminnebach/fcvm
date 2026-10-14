@@ -22,4 +22,6 @@ Stopped VMs can now be started again.
 
 - `fcvm cleanup --all` removes the same things as `delete`, so it deletes stopped VMs and their disks too.
 - VMs created before this release have no `config.json`. They show as `legacy` and cannot be started again; `stop` or `cleanup` removes them. There is no migration.
+- `stop`, `delete` and `cleanup` now wait for the VM process to be gone before touching its disk, and fail without changing anything if it survives SIGKILL. They also take the state lock, so they no longer race a `start` in progress.
+- A crashed VM's block mount images are copied back to the host only if `e2fsck -fn` passes. This adds `e2fsck` (e2fsprogs) as a host tool.
 - A crashed VM's rootfs may be dirty; the guest's own boot recovers the filesystem and fcvm does not run `fsck`.

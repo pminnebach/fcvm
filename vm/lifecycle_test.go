@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -33,6 +34,12 @@ type testHost struct {
 	launches  int
 	patched   int
 	cniIPs    []string // CNI guest addresses to hand out, one per launch
+
+	ignoreTerm bool // launch processes that ignore SIGTERM, so stop must escalate
+	noKill     bool // signals are swallowed, as for a process stuck in the kernel
+	checkErr   error
+	checked    []string
+	synced     [][2]string // block image, host directory
 }
 
 func (h *testHost) commands() []string {
@@ -128,6 +135,20 @@ func newTestManager(t *testing.T) (*Manager, *testHost) {
 			h.patched++
 			return nil
 		},
+		kill: func(pid int, sig syscall.Signal) error {
+			if h.noKill {
+				return nil
+			}
+			return syscall.Kill(pid, sig)
+		},
+		checkImage: func(img string) error {
+			h.checked = append(h.checked, img)
+			return h.checkErr
+		},
+		syncToHost: func(img, host string) error {
+			h.synced = append(h.synced, [2]string{img, host})
+			return nil
+		},
 		waitSSH:    func(context.Context, string, string, time.Duration) error { return errors.New("no ssh in tests") },
 		pushMounts: func(string, string, string) error { return nil },
 		launch: func(ctx context.Context, fc firecracker.Config, _ *logrus.Entry, cni bool) (*launched, error) {
@@ -136,6 +157,9 @@ func newTestManager(t *testing.T) (*Manager, *testHost) {
 				return nil, h.launchErr
 			}
 			cmd := exec.Command("sleep", "60")
+			if h.ignoreTerm {
+				cmd = exec.Command("sh", "-c", `trap "" TERM; while :; do sleep 1; done`)
+			}
 			if err := cmd.Start(); err != nil {
 				return nil, err
 			}

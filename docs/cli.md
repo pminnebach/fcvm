@@ -60,7 +60,9 @@ If NFS is unavailable, `start` fails rather than silently copying the directory 
 
 SIGTERM the VM, wait up to `--stop-timeout` for it to exit, then SIGKILL. Mirrors writable block mounts back to their host directories, then tears down TAP/CNI, NFS and the jailer tree. **The VM's disk, configuration and network slot are kept**, so `fcvm start <id>` brings it back. Use `fcvm delete` to remove it.
 
-Stopping an already stopped VM succeeds without doing anything. Stopping a crashed VM tears down what the crash left behind and records the stop. A `legacy` VM (created before VMs could be restarted) has nothing to come back to, so `stop` deletes it as it used to.
+Stopping an already stopped VM succeeds without doing anything. Stopping a crashed VM tears down what the crash left behind and records the stop. If the VM's process is still alive after SIGKILL and another `--stop-timeout`, `stop` fails and leaves the VM exactly as it was: nothing is synced, torn down or deleted under a process that may still hold the disk.
+
+A crashed VM's writable block mount images are copied back to the host only if `e2fsck -fn` reports them clean, since the copy deletes host files that are missing from the image. Otherwise the host directory is left alone, a warning says so, and the image keeps the guest's writes for the next `start`. A `legacy` VM (created before VMs could be restarted) has nothing to come back to, so `stop` deletes it as it used to.
 
 ## `fcvm restart <id>`
 
@@ -68,7 +70,7 @@ Stop the VM if it is running, then start it again from its disk. On a stopped or
 
 ## `fcvm delete <id>`
 
-Remove a VM for good: its disk, block mount images, configuration and network slot (the slot can then go to a new VM). A running VM is refused unless you pass `--force`, which stops it first.
+Remove a VM for good: its disk, block mount images, configuration and network slot (the slot can then go to a new VM). A running VM is refused unless you pass `--force`, which stops it first. If the VM crashed and its block images fail the check described under `stop`, they are not copied back and the guest's writes in them are lost with the VM; the warning says so.
 
 ## `fcvm list`
 

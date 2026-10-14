@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/pminnebach/fcvm/config"
 )
@@ -564,5 +565,197 @@ func TestListStillShowsOtherVMsWhenOneIsUnreadable(t *testing.T) {
 	}
 	if len(infos) != 1 || infos[0].ID != "b" {
 		t.Fatalf("infos = %+v", infos)
+	}
+}
+
+// --- waiting for the process (finding: stop returned right after SIGKILL) ---
+
+func TestStopEscalatesAndWaitsForTheProcessToBeGone(t *testing.T) {
+	m, h := newTestManager(t)
+	m.cfg.StopTimeoutSec = 1
+	h.ignoreTerm = true
+	st := mustStart(t, m, "web")
+
+	if err := m.Stop("web"); err != nil {
+		t.Fatal(err)
+	}
+	// Syncing or deleting the disk while the process still has it open is the
+	// failure this guards against.
+	if (&State{PID: st.PID, PIDStart: st.PIDStart}).IsRunning() {
+		t.Fatal("stop returned while the VM process was still alive")
+	}
+}
+
+func TestStopFailsAndChangesNothingWhenTheProcessWillNotDie(t *testing.T) {
+	m, h := newTestManager(t)
+	m.cfg.StopTimeoutSec = 1
+	mustStart(t, m, "web")
+	disk := filepath.Join(m.cfg.StateDir, "vms", "web", "rootfs.ext4")
+	if err := os.WriteFile(disk, []byte("guest data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h.noKill = true
+
+	err := m.Stop("web")
+	if err == nil {
+		t.Fatal("stop must fail when the process is still there")
+	}
+	if got := statusOf(t, m, "web"); got != StatusRunning {
+		t.Fatalf("status = %s; a failed stop must leave the VM as it was", got)
+	}
+	if data, _ := os.ReadFile(disk); string(data) != "guest data" {
+		t.Fatalf("disk touched: %q", data)
+	}
+	if len(h.synced) != 0 || h.ranCommand("ip link del") {
+		t.Fatal("nothing may be synced or torn down under a live process")
+	}
+
+	if err := m.Delete("web", true); err == nil {
+		t.Fatal("delete --force must fail too, rather than remove a disk a live process holds")
+	}
+	if !exists(t, disk) {
+		t.Fatal("disk removed under a live process")
+	}
+}
+
+// --- block images after a crash (finding: dirty image mirrored over host) ---
+
+// withBlockMount records a block mount in a VM's runtime state, as if it had
+// been created with one.
+func withBlockMount(t *testing.T, m *Manager, id, host string) string {
+	t.Helper()
+	img := filepath.Join(m.cfg.StateDir, "vms", id, "mount-0.ext4")
+	if err := os.WriteFile(img, []byte("image"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st, err := LoadState(m.cfg.StateDir, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.Mounts = []MountState{{Host: host, Guest: "/data", Method: config.MountBlock, Device: img}}
+	if err := SaveState(m.cfg.StateDir, st); err != nil {
+		t.Fatal(err)
+	}
+	return img
+}
+
+func TestStopOfACrashedVMOnlySyncsAnImageThatChecksClean(t *testing.T) {
+	m, h := newTestManager(t)
+	host := t.TempDir()
+	mustStart(t, m, "web")
+	img := withBlockMount(t, m, "web", host)
+	h.crash("web")
+
+	h.checkErr = errors.New("e2fsck: errors found")
+	if err := m.Stop("web"); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.synced) != 0 {
+		t.Fatalf("a dirty image was mirrored over the host directory: %v", h.synced)
+	}
+	if !exists(t, img) {
+		t.Fatal("the image must be kept so a restart still has the guest's writes")
+	}
+	if got := statusOf(t, m, "web"); got != StatusStopped {
+		t.Fatalf("status = %s", got)
+	}
+}
+
+func TestStopOfACrashedVMSyncsACleanImage(t *testing.T) {
+	m, h := newTestManager(t)
+	host := t.TempDir()
+	mustStart(t, m, "web")
+	img := withBlockMount(t, m, "web", host)
+	h.crash("web")
+
+	if err := m.Stop("web"); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.synced) != 1 || h.synced[0] != [2]string{img, host} {
+		t.Fatalf("synced = %v", h.synced)
+	}
+}
+
+func TestStopOfARunningVMSyncsWithoutTheCheck(t *testing.T) {
+	m, h := newTestManager(t)
+	host := t.TempDir()
+	mustStart(t, m, "web")
+	withBlockMount(t, m, "web", host)
+	h.checkErr = errors.New("would refuse")
+
+	if err := m.Stop("web"); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.synced) != 1 || len(h.checked) != 0 {
+		t.Fatalf("a VM stopped on purpose is synced as before; synced %v checked %v", h.synced, h.checked)
+	}
+}
+
+func TestDeleteOfACrashedVMWithADirtyImageWarnsAndStillDeletes(t *testing.T) {
+	m, h := newTestManager(t)
+	mustStart(t, m, "web")
+	withBlockMount(t, m, "web", t.TempDir())
+	h.crash("web")
+	h.checkErr = errors.New("errors found")
+
+	if err := m.Delete("web", false); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.synced) != 0 {
+		t.Fatal("a dirty image was synced")
+	}
+	if exists(t, filepath.Join(m.cfg.StateDir, "vms", "web")) {
+		t.Fatal("delete must still delete")
+	}
+}
+
+// --- locking (finding: stop/delete raced with start) ---
+
+// blocksWhileLocked runs fn while another process holds the state lock and
+// reports whether fn waited for it.
+func blocksWhileLocked(t *testing.T, stateDir string, fn func()) bool {
+	t.Helper()
+	unlock, err := lockState(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() {
+		fn()
+		close(done)
+	}()
+	select {
+	case <-done:
+		unlock()
+		return false
+	case <-time.After(300 * time.Millisecond):
+	}
+	unlock()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("did not finish after the lock was released")
+	}
+	return true
+}
+
+func TestStopDeleteRestartAndCleanupTakeTheStateLock(t *testing.T) {
+	m, _ := newTestManager(t)
+	for _, tc := range []struct {
+		name string
+		fn   func()
+	}{
+		{"stop", func() { _ = m.Stop("a") }},
+		{"delete", func() { _ = m.Delete("a", true) }},
+		{"restart", func() { _, _ = m.Restart(context.Background(), "a") }},
+		{"cleanup", func() { _ = m.Cleanup(false, "a") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mustStart(t, m, "a")
+			if !blocksWhileLocked(t, m.cfg.StateDir, tc.fn) {
+				t.Fatalf("%s ran while another fcvm held the state lock", tc.name)
+			}
+			_ = m.Delete("a", true)
+		})
 	}
 }

@@ -41,6 +41,11 @@ type hostOps struct {
 	enableIPForward func(stateDir string) error
 	waitSSH         func(ctx context.Context, host, keyPath string, timeout time.Duration) error
 	pushMounts      func(host, keyPath, table string) error
+	kill            func(pid int, sig syscall.Signal) error
+	// checkImage verifies a block image before it is mirrored over a host
+	// directory; syncToHost does the mirroring.
+	checkImage func(img string) error
+	syncToHost func(img, hostDir string) error
 }
 
 func realHostOps() hostOps {
@@ -51,6 +56,9 @@ func realHostOps() hostOps {
 		defaultIface:    network.DefaultIface,
 		enableIPForward: network.EnableIPForward,
 		waitSSH:         guest.WaitSSH,
+		kill:            syscall.Kill,
+		checkImage:      checkExt4,
+		syncToHost:      syncExt4ToDir,
 		pushMounts: func(host, keyPath, table string) error {
 			if err := guest.WriteFile(host, keyPath, "/etc/fcvm/mounts", table); err != nil {
 				return fmt.Errorf("write guest mount table: %w", err)
@@ -718,6 +726,13 @@ func (m *Manager) Stop(id string) error {
 	if err := m.requireRoot(); err != nil {
 		return err
 	}
+	// Taken before looking at the VM: a concurrent start may be mid-creation,
+	// and releasing the shared host network under it would break it.
+	unlock, err := lockState(m.cfg.StateDir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	info, err := Inspect(m.cfg.StateDir, id)
 	if err != nil {
 		return err
@@ -727,7 +742,9 @@ func (m *Manager) Stop(id string) error {
 		return nil
 	case StatusLegacy:
 		// Nothing to come back to: it has no configuration record.
-		m.cleanupVM(id, info.State)
+		if err := m.cleanupVM(id, info.State); err != nil {
+			return err
+		}
 		m.releaseHostNetwork()
 		return nil
 	}
@@ -739,8 +756,12 @@ func (m *Manager) Stop(id string) error {
 // crash rather than as a stop that did not finish.
 func (m *Manager) stopVM(info *Info) error {
 	state := info.State
-	m.stopVMProcess(state)
-	m.syncBlockMounts(state)
+	// A process that is already gone crashed, so its image may be damaged.
+	crashed := !state.IsRunning()
+	if err := m.stopVMProcess(state); err != nil {
+		return err
+	}
+	m.syncBlockMounts(state, crashed)
 	m.releaseRuntime(state)
 	if err := SaveStopRecord(m.cfg.StateDir, info.ID, time.Now()); err != nil {
 		return err
@@ -758,19 +779,31 @@ func (m *Manager) Restart(ctx context.Context, id string) (*State, error) {
 	if err := m.requireRoot(); err != nil {
 		return nil, err
 	}
-	info, err := Inspect(m.cfg.StateDir, id)
-	if err != nil {
+	if err := m.stopForRestart(id); err != nil {
 		return nil, err
 	}
-	if info.Status == StatusLegacy {
-		return nil, errLegacy(id)
-	}
-	if info.Status == StatusRunning {
-		if err := m.stopVM(info); err != nil {
-			return nil, err
-		}
-	}
 	return m.Start(ctx, id)
+}
+
+// stopForRestart stops the VM under the state lock, and releases it before
+// Start takes it again: the lock is not reentrant.
+func (m *Manager) stopForRestart(id string) error {
+	unlock, err := lockState(m.cfg.StateDir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	info, err := Inspect(m.cfg.StateDir, id)
+	if err != nil {
+		return err
+	}
+	switch info.Status {
+	case StatusLegacy:
+		return errLegacy(id)
+	case StatusRunning:
+		return m.stopVM(info)
+	}
+	return nil
 }
 
 func errLegacy(id string) error {
@@ -783,6 +816,11 @@ func (m *Manager) Delete(id string, force bool) error {
 	if err := m.requireRoot(); err != nil {
 		return err
 	}
+	unlock, err := lockState(m.cfg.StateDir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	info, err := Inspect(m.cfg.StateDir, id)
 	if err != nil {
 		return err
@@ -790,35 +828,54 @@ func (m *Manager) Delete(id string, force bool) error {
 	if info.Status == StatusRunning && !force {
 		return fmt.Errorf("VM %q is running; stop it first or use --force", id)
 	}
-	m.cleanupVM(id, info.State)
+	if err := m.cleanupVM(id, info.State); err != nil {
+		return err
+	}
 	m.releaseHostNetwork()
 	return nil
 }
 
 // stopVMProcess signals the VM and waits for it to go away. It never signals a
 // PID it cannot still identify as this VM: PIDs are recycled, and fcvm runs as
-// root.
-func (m *Manager) stopVMProcess(state *State) {
+// root. It returns only once the process is gone, because what follows (syncing
+// block images, deleting disks) is unsafe while it still has them open; if the
+// process survives SIGKILL the caller must leave the VM alone.
+func (m *Manager) stopVMProcess(state *State) error {
 	if !state.IsRunning() {
-		return
+		return nil
 	}
-	if err := syscall.Kill(state.PID, syscall.SIGTERM); err != nil {
-		return
+	if err := m.ops.kill(state.PID, syscall.SIGTERM); err != nil {
+		if !state.IsRunning() {
+			return nil
+		}
+		return fmt.Errorf("signal VM %q: %w", state.ID, err)
 	}
 	timeout := time.Duration(m.cfg.StopTimeoutSec) * time.Second
 	if timeout <= 0 {
 		timeout = 5 * time.Second
 	}
+	if waitGone(state, timeout) {
+		return nil
+	}
+	m.log.Warnf("VM %q did not exit within %s; sending SIGKILL", state.ID, timeout)
+	_ = m.ops.kill(state.PID, syscall.SIGKILL)
+	if waitGone(state, timeout) {
+		return nil
+	}
+	return fmt.Errorf("VM %q (pid %d) is still running %s after SIGKILL; leaving it untouched", state.ID, state.PID, timeout)
+}
+
+// waitGone polls until the VM's process has exited or the timeout passes.
+func waitGone(state *State, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
+	for {
 		if !state.IsRunning() {
-			return
+			return true
+		}
+		if !time.Now().Before(deadline) {
+			return false
 		}
 		time.Sleep(50 * time.Millisecond)
-	}
-	if state.IsRunning() {
-		m.log.Warnf("VM %q did not exit within %s; sending SIGKILL", state.ID, timeout)
-		_ = syscall.Kill(state.PID, syscall.SIGKILL)
 	}
 }
 
@@ -826,58 +883,64 @@ func (m *Manager) Cleanup(all bool, id string) error {
 	if err := m.requireRoot(); err != nil {
 		return err
 	}
-	if all {
-		ids, err := ListVMDirIDs(m.cfg.StateDir)
-		if err != nil {
+	if !all {
+		if id == "" {
+			return fmt.Errorf("specify VM id or --all")
+		}
+		if err := ValidateID(id); err != nil {
 			return err
 		}
-		for _, vmID := range ids {
-			state, err := LoadState(m.cfg.StateDir, vmID)
-			if err != nil {
-				if !errors.Is(err, os.ErrNotExist) {
-					m.log.Warnf("skip %q: %v", vmID, err)
-					continue
-				}
-				m.cleanupVM(vmID, nil)
-				continue
-			}
-			m.cleanupVM(vmID, state)
-		}
-		m.releaseHostNetwork()
-		return nil
 	}
-	if id == "" {
-		return fmt.Errorf("specify VM id or --all")
-	}
-	if err := ValidateID(id); err != nil {
+	unlock, err := lockState(m.cfg.StateDir)
+	if err != nil {
 		return err
 	}
-	state, err := LoadState(m.cfg.StateDir, id)
-	if err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
+	defer unlock()
+
+	ids := []string{id}
+	if all {
+		if ids, err = ListVMDirIDs(m.cfg.StateDir); err != nil {
 			return err
 		}
-		m.cleanupVM(id, nil)
-		m.releaseHostNetwork()
-		return nil
 	}
-	m.cleanupVM(id, state)
+	var errs []error
+	for _, vmID := range ids {
+		state, err := LoadState(m.cfg.StateDir, vmID)
+		if err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				if !all {
+					return err
+				}
+				m.log.Warnf("skip %q: %v", vmID, err)
+				continue
+			}
+			state = nil
+		}
+		if err := m.cleanupVM(vmID, state); err != nil {
+			errs = append(errs, err)
+		}
+	}
 	m.releaseHostNetwork()
-	return nil
+	return errors.Join(errs...)
 }
 
 // cleanupVM removes a VM completely, with or without a state record to guide
 // it. Without one the TAP name is unknown; exports and the jailer tree are
-// still derivable from the id.
-func (m *Manager) cleanupVM(id string, state *State) {
+// still derivable from the id. It leaves the VM alone and returns an error if
+// its process cannot be stopped.
+func (m *Manager) cleanupVM(id string, state *State) error {
 	if state != nil {
-		m.stopVMProcess(state)
-		m.syncBlockMounts(state)
+		crashed := !state.IsRunning()
+		if err := m.stopVMProcess(state); err != nil {
+			return err
+		}
+		m.syncBlockMounts(state, crashed)
 	} else {
 		state = &State{ID: id}
 	}
 	m.releaseRuntime(state)
 	_ = RemoveState(m.cfg.StateDir, id)
+	return nil
 }
 
 // releaseHostNetwork undoes host-wide changes once no VM is running. Stopped
@@ -898,13 +961,22 @@ func (m *Manager) releaseHostNetwork() {
 
 // syncBlockMounts copies writable block-device mounts back to their host
 // directories. Without this the guest's writes are discarded when the VM's
-// state directory is removed.
-func (m *Manager) syncBlockMounts(state *State) {
+// state directory is removed. After a crash the image may be damaged, and the
+// copy deletes host files missing from the image, so it is only trusted if it
+// passes a check; otherwise the host directory is left alone and the image is
+// all that holds the guest's writes.
+func (m *Manager) syncBlockMounts(state *State, verify bool) {
 	for _, mnt := range state.Mounts {
 		if mnt.Method != config.MountBlock || mnt.ReadOnly || mnt.Device == "" || mnt.Host == "" {
 			continue
 		}
-		if err := syncExt4ToDir(mnt.Device, mnt.Host); err != nil {
+		if verify {
+			if err := m.ops.checkImage(mnt.Device); err != nil {
+				m.log.Warnf("not copying %s back to %s: the VM crashed and its image failed a check, so the guest's writes stay in the image only: %v", mnt.Device, mnt.Host, err)
+				continue
+			}
+		}
+		if err := m.ops.syncToHost(mnt.Device, mnt.Host); err != nil {
 			m.log.Errorf("sync %s back to %s: %v", mnt.Device, mnt.Host, err)
 		}
 	}
@@ -1030,6 +1102,17 @@ func syncDirToExt4(hostDir, img, size string) error {
 		}
 	}
 	return rootfs.MakeExt4(staging, img, size)
+}
+
+// checkExt4 reports whether an image passes a read-only e2fsck. It is the gate
+// in front of mirroring an image that belonged to a VM that crashed: mirror
+// semantics delete host files missing from the image, so a damaged image must
+// not be trusted with a host directory.
+func checkExt4(img string) error {
+	if out, err := exec.Command("e2fsck", "-fn", img).CombinedOutput(); err != nil {
+		return fmt.Errorf("e2fsck %s: %s: %w", img, strings.TrimSpace(string(out)), err)
+	}
+	return nil
 }
 
 // syncExt4ToDir mirrors a block image back onto the host directory it came
