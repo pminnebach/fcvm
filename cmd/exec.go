@@ -24,7 +24,7 @@ var execCmd = &cobra.Command{
 		if cmdArgs[0] == "--" {
 			cmdArgs = cmdArgs[1:]
 		}
-		state, err := vm.RunningState(c.StateDir, id)
+		state, err := vm.LoadState(c.StateDir, id)
 		if err != nil {
 			return err
 		}
@@ -49,7 +49,7 @@ var shellCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		state, err := vm.RunningState(c.StateDir, args[0])
+		state, err := vm.LoadState(c.StateDir, args[0])
 		if err != nil {
 			return err
 		}
@@ -74,7 +74,7 @@ var attachCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		state, err := vm.RunningState(c.StateDir, args[0])
+		state, err := vm.LoadState(c.StateDir, args[0])
 		if err != nil {
 			return err
 		}

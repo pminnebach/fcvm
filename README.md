@@ -11,9 +11,7 @@ curl -sSL https://raw.githubusercontent.com/pminnebach/fcvm/refs/heads/main/inst
 sudo fcvm build-rootfs --dockerfile ./Dockerfile
 sudo fcvm start myvm
 sudo fcvm exec myvm -- uname -a
-sudo fcvm stop myvm      # keeps the disk
-sudo fcvm start myvm     # boots it again from that disk
-sudo fcvm delete myvm    # removes it for good
+sudo fcvm stop myvm
 ```
 
 Or build from source:

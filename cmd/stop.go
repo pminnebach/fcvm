@@ -10,7 +10,7 @@ import (
 
 var stopCmd = &cobra.Command{
 	Use:   "stop <id>",
-	Short: "Stop a VM, keeping its disk so it can be started again",
+	Short: "Stop a running microVM",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		c, err := loadConfig()

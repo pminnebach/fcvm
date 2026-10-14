@@ -24,7 +24,7 @@ curl -sSL https://raw.githubusercontent.com/pminnebach/fcvm/refs/heads/main/inst
 | Linux with `/dev/kvm` | Firecracker |
 | Root (sudo) | Jailer, TAP/NAT, NFS, cleanup |
 | Go 1.26+ (to build from source) | Module requires Go 1.26.5 |
-| Host tools | `ip`, `iptables`, `cp`, Docker (for `build-rootfs`), `mkfs.ext4`, `e2fsck` (checks a crashed VM's block mount images before they are copied back), `truncate`, NFS server tools for mounts; `unsquashfs` for squashfs downloads |
+| Host tools | `ip`, `iptables`, `cp`, Docker (for `build-rootfs`), `mkfs.ext4`, `truncate`, NFS server tools for mounts; `unsquashfs` for squashfs downloads |
 
 ## Build fcvm
 

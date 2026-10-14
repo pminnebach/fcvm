@@ -216,7 +216,6 @@ print_dependency_status() {
     printf 'ip\t%s\t%s\n' "$(tool_path ip)" "$(tool_status ip)"
     printf 'iptables\t%s\t%s\n' "$(tool_path iptables)" "$(tool_status iptables)"
     printf 'mkfs.ext4\t%s\t%s\n' "$(tool_path mkfs.ext4)" "$(tool_status mkfs.ext4)"
-    printf 'e2fsck\t%s\t%s\n' "$(tool_path e2fsck)" "$(tool_status e2fsck)"
     printf 'truncate\t%s\t%s\n' "$(tool_path truncate)" "$(tool_status truncate)"
   } | print_tsv_table "${table_color}"
 

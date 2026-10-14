@@ -48,7 +48,7 @@ When `cni-network` is empty:
 3. Derive guest MAC as `06:00:` + guest IPv4 bytes (`GuestMAC`).
 4. Patch the per-VM rootfs with `/etc/fcvm/network` (`FCVM_GUEST_IP`, `FCVM_GATEWAY`, `FCVM_IFACE=eth0`, `FCVM_NAMESERVERS`).
 5. Firecracker NIC uses static config: host TAP, guest `/30`, gateway = tap IP, `network.nameservers` for DNS, MMDS allowed.
-6. Stop/delete/cleanup deletes this VM's rules and the TAP (`ip link del`). A stopped VM keeps its index, and therefore the same addresses, but no TAP or rules; `start` recreates them.
+6. Stop/cleanup deletes this VM's rules and the TAP (`ip link del`).
 
 Defaults: `tap-ip: 172.16.0.1`, `guest-ip: 172.16.0.2` (VM index 0). Index 1 → `172.16.1.1` / `172.16.1.2`, and so on. An index that would push the third octet past 255 is an error rather than a silent wrap onto another VM's address.
 
@@ -56,9 +56,9 @@ Before creating the TAP, fcvm checks that the derived `/30` does not overlap hos
 
 ### Index allocation
 
-The index is the **lowest one not claimed by an existing VM** (running, stopped or crashed), not a count of running VMs. Counting would reuse the index of a stopped VM and collide with VMs still running — and since the index also selects the TAP name and the per-VM jailer uid, that collision would take over a live VM's network. Allocation and the state write that claims the index are serialised with a lock file at `<state-dir>/.lock`.
+The index is the **lowest one not claimed by an existing VM**, not a count of running VMs. Counting would reuse the index of a stopped VM and collide with VMs still running — and since the index also selects the TAP name and the per-VM jailer uid, that collision would take over a live VM's network. Allocation and the state write that claims the index are serialised with a lock file at `<state-dir>/.lock`.
 
-The index is recorded as `index` in `config.json` (and in `state.json` while the VM runs). A stopped VM keeps it until `fcvm delete`. Starting a VM whose TAP device name already exists fails instead of deleting the existing device.
+The index is recorded as `index` in `state.json`. Starting a VM whose TAP device name already exists fails instead of deleting the existing device.
 
 ### Host firewall rules
 
@@ -82,7 +82,7 @@ When `network.cni-network` is set (for example `fcnet`):
 2. firecracker-go-sdk creates `/var/run/netns/<VMID>`, runs CNI ADD, and passes `--netns` to the jailer. Interface names: host `veth0`, guest `eth0`.
 3. Guest IP/gateway/MAC come from the CNI result. **`tc-redirect-tap` is required.**
 4. NFS exports are created after the address is known, so they can be scoped to the guest, and use the CNI gateway as the NFS server address.
-5. On stop/delete/cleanup, fcvm runs CNI DEL and removes the netns (no TAP teardown). CNI assigns the guest address at each start, so it can change across a restart; NFS exports are recreated for the new address.
+5. On stop/cleanup, fcvm runs CNI DEL and removes the netns (no TAP teardown).
 
 `cni-network` must match the `name` field in the CNI conflist.
 
@@ -147,11 +147,10 @@ If NFS setup fails, `start` fails with an error naming `method=block`. It does *
 
 **Block (`method=block`).** Copies the host directory into an ext4 image attached as `/dev/vdb`, `/dev/vdc`, … The image is sized from the source tree unless `size=` is given. This is a copy, not a live mount:
 
-- writes are mirrored back to the host directory on `stop`, `delete` and `cleanup`. For a VM that crashed, this happens only if `e2fsck -fn` finds the image clean, because the mirror deletes host files that are missing from the image; otherwise the host directory is left alone and the image keeps the writes;
-- the image is kept while the VM is stopped and reused by the next `start`, so guest-side changes are not overwritten with older host content;
+- writes are mirrored back to the host directory on `stop` and `cleanup`;
 - a `ro` mount is attached read-only and is not synced back;
 - files deleted in the guest are deleted on the host (mirror semantics);
-- the VM crashing without a `stop` leaves the writes in the image; `start` keeps using them, and the next `stop` mirrors them back.
+- the VM crashing without a `stop`/`cleanup` leaves the writes in the image until you run `cleanup`.
 
 ## Jailer credentials and multi-VM isolation
 
@@ -161,5 +160,5 @@ By default all VMs share `jailer.uid` / `jailer.gid` (`1000`). Set `jailer.per-v
 
 - [architecture.md](architecture.md) — lifecycle and state
 - [configuration.md](configuration.md) — network config keys
-- [cli.md](cli.md) — `start` / `stop` / `restart` / `delete` / `cleanup`
+- [cli.md](cli.md) — `start` / `stop` / `cleanup`
 - [debug.md](debug.md) — inspecting TAPs, rules and exports on the host
