@@ -2,14 +2,18 @@
 
 | Version | Date | Summary |
 |---------|------|---------|
-| [v1.3.0](release_notes_v1.3.0.md) | Unreleased | `stop` keeps the VM; `start <id>`, `restart`, `delete`; `crashed`/`legacy` statuses |
+| [v1.3.0](release_notes_v1.3.0.md) | 2026-10-14 | `stop` keeps the VM; `start <id>`, `restart`, `delete`; stopped/crashed statuses; fix VMs dying after `start` |
 | [v1.2.2](release_notes_v1.2.2.md) | 2026-09-14 | Fix uppercase `.fcvm.yaml` env vars getting lowercased in the guest |
 | [v1.2.1](release_notes_v1.2.1.md) | 2026-09-14 | Fix `shell`/`exec` failing right after `start` with "No route to host" |
 | [v1.2.0](release_notes_v1.2.0.md) | 2026-07-31 | Correctness/security/CLI hardening; experimental vsock; `install.sh` |
 | v1.1.0 | 2026-07-26 | Jailer/machine knobs; optional CNI; product docs tree |
 | v1.0.0 | 2026-07-17 | Initial CLI; GoReleaser; `fcvm version` |
 
-Full notes for the latest release: [release_notes_v1.2.2.md](release_notes_v1.2.2.md). Upcoming: [release_notes_v1.3.0.md](release_notes_v1.3.0.md).
+Full notes for the latest release: [release_notes_v1.3.0.md](release_notes_v1.3.0.md).
+
+## v1.3.0 (2026-10-14)
+
+`stop` now keeps a VM's disk, configuration and network slot, so a stopped VM can be started again with `start <id>` or `restart <id>`; `delete` removes a VM for good. `list` reports `running`, `stopped`, `crashed`, `legacy` and `incomplete`. Fixed VMs dying moments after `start` (the SDK stopped them when the command's context was cancelled) and moved Firecracker's console to a per-VM log. VMs created before this release cannot be restarted. See [release_notes_v1.3.0.md](release_notes_v1.3.0.md).
 
 ## v1.2.2 (2026-09-14)
 
