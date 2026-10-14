@@ -20,6 +20,7 @@ import (
 // Status is derived from these plus the live process; it is never stored.
 const (
 	configFile  = "config.json"
+	stateFile   = "state.json"
 	stoppedFile = "stopped.json"
 )
 
@@ -59,6 +60,10 @@ const (
 	StatusStopped Status = "stopped" // deliberately stopped by the user
 	StatusCrashed Status = "crashed" // process gone without a stop
 	StatusLegacy  Status = "legacy"  // created before configuration records existed
+	// StatusIncomplete is a creation that never finished: a configuration
+	// record with no runtime state and no stop record. Its disk may be half
+	// built, so it is never booted.
+	StatusIncomplete Status = "incomplete"
 )
 
 // Info is a VM together with the records that determine its status.
@@ -148,19 +153,16 @@ func loadStopRecord(stateDir, id string) (time.Time, error) {
 }
 
 func removeStopRecord(stateDir, id string) error {
-	path, err := vmFile(stateDir, id, stoppedFile)
-	if err != nil {
-		return err
-	}
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	return nil
+	return removeRecord(stateDir, id, stoppedFile)
 }
 
 // removeRuntimeState removes only state.json, keeping the rest of the VM.
 func removeRuntimeState(stateDir, id string) error {
-	path, err := vmFile(stateDir, id, "state.json")
+	return removeRecord(stateDir, id, stateFile)
+}
+
+func removeRecord(stateDir, id, name string) error {
+	path, err := vmFile(stateDir, id, name)
 	if err != nil {
 		return err
 	}
@@ -190,6 +192,9 @@ func Inspect(stateDir, id string) (*Info, error) {
 	}
 	if at, err := loadStopRecord(stateDir, id); err == nil {
 		info.StoppedAt = at
+	} else if !errors.Is(err, os.ErrNotExist) {
+		// A record that cannot be read must not quietly read as another status.
+		return nil, fmt.Errorf("load stop record for %q: %w", id, err)
 	}
 	if info.Config == nil && info.State == nil {
 		return nil, fmt.Errorf("no such VM %q: %w", id, os.ErrNotExist)
@@ -204,9 +209,9 @@ func Inspect(stateDir, id string) (*Info, error) {
 	case info.State != nil:
 		info.Status = StatusCrashed
 	default:
-		// Configuration only: the runtime state is gone and nothing was left
-		// running, which is what a stopped VM looks like.
-		info.Status = StatusStopped
+		// Configuration only. Every way a VM stops leaves a stop record, so
+		// this is a creation that never got as far as booting.
+		info.Status = StatusIncomplete
 	}
 	return info, nil
 }
@@ -244,6 +249,8 @@ func RunningState(stateDir, id string) (*State, error) {
 		return nil, fmt.Errorf("VM %q is stopped; start it with `fcvm start %s`", id, id)
 	case StatusCrashed:
 		return nil, fmt.Errorf("VM %q crashed; start it again with `fcvm start %s`", id, id)
+	case StatusIncomplete:
+		return nil, errIncomplete(id)
 	default:
 		return nil, fmt.Errorf("VM %q was created before VMs could be restarted and is not running; remove it with `fcvm cleanup %s`", id, id)
 	}

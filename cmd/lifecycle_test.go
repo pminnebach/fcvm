@@ -24,13 +24,11 @@ func runCLI(t *testing.T, stateDir string, args ...string) (string, error) {
 	viper.Set("enable-experimental", true)
 	// Flags and args persist on the global command tree between runs.
 	t.Cleanup(func() {
-		for _, name := range []string{"mount"} {
-			if f := startCmd.Flags().Lookup(name); f != nil {
-				if sv, ok := f.Value.(pflag.SliceValue); ok {
-					_ = sv.Replace(nil)
-				}
-				f.Changed = false
+		if f := startCmd.Flags().Lookup("mount"); f != nil {
+			if sv, ok := f.Value.(pflag.SliceValue); ok {
+				_ = sv.Replace(nil)
 			}
+			f.Changed = false
 		}
 		if f := startCmd.Flags().Lookup("env"); f != nil {
 			_ = f.Value.Set("")

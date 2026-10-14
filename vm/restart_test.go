@@ -901,3 +901,165 @@ func waitProcGone(pid int) error {
 	}
 	return errors.New("still running")
 }
+
+// --- review follow-ups ---
+
+func TestFailedRestartOfACrashedVMReadsAsStoppedWithATime(t *testing.T) {
+	m, h := newTestManager(t)
+	mustStart(t, m, "web")
+	disk := filepath.Join(m.cfg.StateDir, "vms", "web", "rootfs.ext4")
+	if err := os.WriteFile(disk, []byte("guest data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h.crash("web")
+	h.launchErr = errors.New("kvm exploded")
+
+	if _, err := m.Start(context.Background(), "web"); err == nil {
+		t.Fatal("expected error")
+	}
+	info, err := Inspect(m.cfg.StateDir, "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The crash's leftovers were torn down, so the VM is now stopped.
+	if info.Status != StatusStopped || info.StoppedAt.IsZero() || info.State != nil {
+		t.Fatalf("status %s stoppedAt %v state %v", info.Status, info.StoppedAt, info.State)
+	}
+	if data, _ := os.ReadFile(disk); string(data) != "guest data" {
+		t.Fatalf("disk = %q", data)
+	}
+}
+
+func TestFailedRestartKeepsTheOriginalStopTime(t *testing.T) {
+	m, h := newTestManager(t)
+	mustStart(t, m, "web")
+	if err := m.Stop("web"); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := Inspect(m.cfg.StateDir, "web")
+	h.launchErr = errors.New("kvm exploded")
+	if _, err := m.Start(context.Background(), "web"); err == nil {
+		t.Fatal("expected error")
+	}
+	after, _ := Inspect(m.cfg.StateDir, "web")
+	if !after.StoppedAt.Equal(before.StoppedAt) {
+		t.Fatalf("stop time moved: %v -> %v", before.StoppedAt, after.StoppedAt)
+	}
+}
+
+// A stop interrupted after the stop record but before state.json is removed
+// reads as stopped; stop must finish the job rather than return early.
+func TestStopFinishesAnInterruptedStop(t *testing.T) {
+	m, h := newTestManager(t)
+	st := mustStart(t, m, "web")
+	if err := m.Stop("web"); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveState(m.cfg.StateDir, &State{ID: "web", TapDev: st.TapDev, GuestSubnet: st.GuestSubnet, HostIface: "eth0"}); err != nil {
+		t.Fatal(err)
+	}
+	before := h.countCommands("ip link del " + st.TapDev)
+
+	if err := m.Stop("web"); err != nil {
+		t.Fatal(err)
+	}
+	info, _ := Inspect(m.cfg.StateDir, "web")
+	if info.State != nil || info.Status != StatusStopped {
+		t.Fatalf("status %s state %v", info.Status, info.State)
+	}
+	if h.countCommands("ip link del "+st.TapDev) <= before {
+		t.Fatal("the leftover TAP device was not released")
+	}
+}
+
+// A configuration record with no runtime state and no stop record is a
+// creation that never finished: the disk may be half built.
+func TestACreationThatNeverFinishedIsIncomplete(t *testing.T) {
+	m, h := newTestManager(t)
+	if err := SaveVMConfig(m.cfg.StateDir, &VMConfig{ID: "half", Config: m.cfg}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(m.cfg.StateDir, "vms", "half", "rootfs.ext4"), []byte("unpatched"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := statusOf(t, m, "half"); got != StatusIncomplete {
+		t.Fatalf("status = %s", got)
+	}
+
+	if _, err := m.Start(context.Background(), "half"); err == nil || !strings.Contains(err.Error(), "fcvm delete half") {
+		t.Fatalf("start must refuse and say how to clear it, got %v", err)
+	}
+	if _, err := m.Restart(context.Background(), "half"); err == nil || !strings.Contains(err.Error(), "fcvm delete half") {
+		t.Fatalf("restart must refuse too, got %v", err)
+	}
+	if h.launches != 0 {
+		t.Fatal("a half-built disk was booted")
+	}
+	if _, err := RunningState(m.cfg.StateDir, "half"); err == nil || !strings.Contains(err.Error(), "fcvm delete half") {
+		t.Fatalf("RunningState: %v", err)
+	}
+
+	if err := m.Stop("half"); err != nil { // nothing to stop; it is cleared away
+		t.Fatal(err)
+	}
+	if exists(t, filepath.Join(m.cfg.StateDir, "vms", "half")) {
+		t.Fatal("stop of an incomplete VM should clear it")
+	}
+}
+
+func TestDeleteClearsAnIncompleteVM(t *testing.T) {
+	m, _ := newTestManager(t)
+	if err := SaveVMConfig(m.cfg.StateDir, &VMConfig{ID: "half", Config: m.cfg}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Delete("half", false); err != nil {
+		t.Fatal(err)
+	}
+	if exists(t, filepath.Join(m.cfg.StateDir, "vms", "half")) {
+		t.Fatal("not deleted")
+	}
+}
+
+func TestUnreadableStopRecordIsAnErrorNotACrash(t *testing.T) {
+	m, _ := newTestManager(t)
+	mustStart(t, m, "web")
+	if err := m.Stop("web"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(m.cfg.StateDir, "vms", "web", stoppedFile), []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Inspect(m.cfg.StateDir, "web"); err == nil {
+		t.Fatal("a corrupt stop record must not silently read as another status")
+	}
+}
+
+// New fields on config.Config describe the VM unless they are listed as
+// belonging to this host, so forgetting one fails safe: it stays as saved.
+func TestShapeFromTreatsUnlistedFieldsAsShape(t *testing.T) {
+	saved := config.Default()
+	saved.VCPUCount, saved.MemSizeMib = 4, 2048
+	saved.KernelArgs, saved.Env = "saved-args", map[string]string{"K": "saved"}
+	saved.Mounts = []config.MountConfig{{Host: "/h"}}
+	saved.EnableVsock = true
+	saved.Jailer.UID, saved.Jailer.PerVMUIDs = 4242, true
+	saved.StateDir, saved.Kernel, saved.FirecrackerBin = "/old/state", "/old/vmlinux", "/old/fc"
+	saved.Jailer.ChrootBaseDir = "/old/jail"
+
+	cur := config.Default()
+	cur.VCPUCount, cur.KernelArgs, cur.EnableVsock = 1, "cur-args", false
+	cur.StateDir, cur.Kernel, cur.FirecrackerBin = "/new/state", "/new/vmlinux", "/new/fc"
+	cur.Jailer.ChrootBaseDir = "/new/jail"
+	cur.StopTimeoutSec = 99
+
+	got := shapeFrom(cur, saved)
+
+	if got.VCPUCount != 4 || got.MemSizeMib != 2048 || got.KernelArgs != "saved-args" || got.Env["K"] != "saved" ||
+		len(got.Mounts) != 1 || !got.EnableVsock || got.Jailer.UID != 4242 || !got.Jailer.PerVMUIDs {
+		t.Fatalf("shape not kept: %+v", got)
+	}
+	if got.StateDir != "/new/state" || got.Kernel != "/new/vmlinux" || got.FirecrackerBin != "/new/fc" ||
+		got.Jailer.ChrootBaseDir != "/new/jail" || got.StopTimeoutSec != 99 {
+		t.Fatalf("host settings not taken from this run: %+v", got)
+	}
+}

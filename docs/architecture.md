@@ -67,7 +67,7 @@ Default state directory: `~/.fcvm` (respects `SUDO_USER` home when run under sud
 
 `config.json` is the shape the VM was created with (machine knobs, network mode, network index and resolved TAP addresses, mounts, env, vsock, jailer settings). It is never modified, and a restart reuses it, so a flag or config change cannot drift a VM away from the disk it was provisioned on. It also keeps the VM's network index claimed while it is stopped.
 
-A VM's status is derived from these files and the live process, never stored: `running` (process alive, identified by PID plus start time), `stopped` (stop record, no process), `crashed` (runtime state but no stop record and no process), `legacy` (runtime state but no `config.json`; created before VMs could be restarted).
+A VM's status is derived from these files and the live process, never stored: `running` (process alive, identified by PID plus start time), `stopped` (stop record, no process), `crashed` (runtime state but no stop record and no process), `legacy` (runtime state but no `config.json`; created before VMs could be restarted), `incomplete` (`config.json` only: creation never got as far as booting, so the disk may be half built and is never started).
 
 `state.json` records id, network index, pid and its `/proc` start time, socket, network mode (tap/cni), tap device, host egress interface, guest subnet, guest IP/MAC, SSH key path, chroot/log paths, optional vsock UDS/CID (when started with `--enable-vsock`), jailer uid/gid, mounts, and env.
 

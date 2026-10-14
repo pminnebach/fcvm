@@ -4,7 +4,7 @@
 
 ## Consequences
 
-- Per-VM state is split: `config.json` (written once at creation, immutable), `state.json` (runtime facts, present only while running) and `stopped.json` (`stopped_at`, written by a deliberate stop and removed on start). `list` compares them with the live process to report `running`, `stopped`, `crashed` (no stop record, process gone) or `legacy`.
+- Per-VM state is split: `config.json` (written once at creation, immutable), `state.json` (runtime facts, present only while running) and `stopped.json` (`stopped_at`, written by a deliberate stop and removed on start). `list` compares them with the live process to report `running`, `stopped`, `crashed` (no stop record, process gone), `legacy` or `incomplete` (a creation that never finished).
 - Starting an existing VM reuses its saved configuration; `--mount` and `--env` are rejected. A failed restart rolls back runtime resources only and never deletes the disk.
 - A crashed VM is reconciled (leftovers torn down) and then started; its rootfs may be dirty and is not fsck'd.
 - Stopped VMs keep their rootfs copy and index, so disk use grows until `delete`. In CNI mode the guest IP may change across restarts.

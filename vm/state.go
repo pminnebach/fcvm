@@ -161,7 +161,7 @@ func ValidateID(id string) error {
 const maxIDLen = 64
 
 func statePath(stateDir, id string) string {
-	return filepath.Join(stateDir, "vms", id, "state.json")
+	return filepath.Join(stateDir, "vms", id, stateFile)
 }
 
 // VMDir returns the per-VM state directory, after validating the id.
@@ -199,7 +199,7 @@ func SaveState(stateDir string, s *State) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, "state.json"), data, 0o644)
+	return os.WriteFile(filepath.Join(dir, stateFile), data, 0o644)
 }
 
 func RemoveState(stateDir, id string) error {

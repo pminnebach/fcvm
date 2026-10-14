@@ -13,7 +13,7 @@ import (
 
 var listCmd = &cobra.Command{
 	Use:   "list",
-	Short: "List microVMs",
+	Short: "List VMs",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		c, err := loadConfig()

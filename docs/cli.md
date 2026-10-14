@@ -62,7 +62,7 @@ SIGTERM the VM, wait up to `--stop-timeout` for it to exit, then SIGKILL. Mirror
 
 Stopping an already stopped VM succeeds without doing anything. Stopping a crashed VM tears down what the crash left behind and records the stop. If the VM's process is still alive after SIGKILL and another `--stop-timeout`, `stop` fails and leaves the VM exactly as it was: nothing is synced, torn down or deleted under a process that may still hold the disk.
 
-A crashed VM's writable block mount images are copied back to the host only if `e2fsck -fn` reports them clean, since the copy deletes host files that are missing from the image. Otherwise the host directory is left alone, a warning says so, and the image keeps the guest's writes for the next `start`. A `legacy` VM (created before VMs could be restarted) has nothing to come back to, so `stop` deletes it as it used to.
+A crashed VM's writable block mount images are copied back to the host only if `e2fsck -fn` reports them clean, since the copy deletes host files that are missing from the image. Otherwise the host directory is left alone, a warning says so, and the image keeps the guest's writes for the next `start`. A `legacy` VM (created before VMs could be restarted) or an `incomplete` one has nothing to come back to, so `stop` deletes it.
 
 ## `fcvm restart <id>`
 
@@ -82,6 +82,7 @@ Tabular list: ID, status, guest IP, PID, uptime, stopped.
 | `stopped` | You stopped it; `STOPPED` shows how long ago. `fcvm start <id>` boots it again |
 | `crashed` | The process is gone but nobody stopped it. `fcvm start <id>` recovers it |
 | `legacy` | Created before VMs could be restarted; it cannot be started again. `fcvm cleanup <id>` removes it |
+| `incomplete` | Creation never finished, so the disk may be half built. It is never booted; `fcvm delete <id>` clears it |
 
 Status comes from comparing the records on disk with the real process, so it reflects what happened, not only what was last written. A stopped VM shows its guest IP in TAP mode, where the address is stable; in CNI mode the address is assigned at each start, so it shows `-`.
 

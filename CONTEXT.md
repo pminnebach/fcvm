@@ -16,6 +16,10 @@ _Avoid_: paused, suspended
 A VM whose process is gone although the user never stopped it. Its disk and configuration are kept like a stopped VM, and it can be started again.
 _Avoid_: dead, failed, orphan
 
+**Incomplete VM**:
+A VM whose creation never finished: it has a configuration but never booted and was never stopped, so its disk may be half built. It cannot be started, only deleted.
+_Avoid_: broken, partial
+
 **VM configuration**:
 The shape a VM was created with (resources, mounts, env, network mode). It is fixed at creation and reused on every start.
 _Avoid_: settings, spec

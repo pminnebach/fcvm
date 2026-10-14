@@ -333,6 +333,8 @@ func (m *Manager) startExisting(ctx context.Context, info *Info, unlock func()) 
 		return nil, fmt.Errorf("VM %q is already running", id)
 	case StatusLegacy:
 		return nil, errLegacy(id)
+	case StatusIncomplete:
+		return nil, errIncomplete(id)
 	}
 	vc := info.Config
 	em := m.withConfig(shapeFrom(m.cfg, vc.Config))
@@ -387,9 +389,17 @@ func (m *Manager) startExisting(ctx context.Context, info *Info, unlock func()) 
 	}
 
 	// A failed restart gives back what this attempt took and leaves the VM
-	// stopped; its disk is what the user came back for.
-	fail := func(err error) (*State, error) {
+	// stopped; its disk is what the user came back for. A crashed VM has no stop
+	// record, and its leftovers are gone now, so it is stopped too; one that was
+	// already stopped keeps its original time.
+	giveBack := func() {
 		em.rollback(id, slot, false)
+		if _, err := loadStopRecord(em.cfg.StateDir, id); err != nil {
+			_ = SaveStopRecord(em.cfg.StateDir, id, time.Now())
+		}
+	}
+	fail := func(err error) (*State, error) {
+		giveBack()
 		return nil, err
 	}
 
@@ -407,30 +417,31 @@ func (m *Manager) startExisting(ctx context.Context, info *Info, unlock func()) 
 	return em.boot(ctx, bootPlan{
 		id: id, slot: slot, keyPath: key.PrivateKeyPath, rootfsPath: rootfsPath,
 		blockDrives: blockDrives, pending: pending,
-		rollback: func() { em.rollback(id, slot, false) },
+		rollback: giveBack,
 		started:  func() error { return removeStopRecord(em.cfg.StateDir, id) },
 	}, unlock)
 }
 
-// shapeFrom overlays the parts of a VM's saved configuration that define what
-// it is onto the current configuration, which still supplies where things live
-// on this host (binaries, kernel, state directory, timeouts).
+// shapeFrom returns the configuration a VM is started with: everything it was
+// created with, except the settings that say where things live on this host
+// (binaries, kernel, state and jail directories, timeouts), which come from
+// this run. Anything not listed here counts as shape, so a field added to
+// config.Config later stays as saved instead of silently following the flags.
 func shapeFrom(cur, saved config.Config) config.Config {
-	cur.KernelArgs = saved.KernelArgs
-	cur.LogLevel = saved.LogLevel
-	cur.CPUTemplate = saved.CPUTemplate
-	cur.DisableSMT = saved.DisableSMT
-	cur.VCPUCount = saved.VCPUCount
-	cur.MemSizeMib = saved.MemSizeMib
-	cur.Network = saved.Network
-	cur.Env = saved.Env
-	cur.Mounts = saved.Mounts
-	cur.SSHKey = saved.SSHKey
-	cur.EnableVsock = saved.EnableVsock
-	base := cur.Jailer.ChrootBaseDir
-	cur.Jailer = saved.Jailer
-	cur.Jailer.ChrootBaseDir = base
-	return cur
+	out := saved
+	out.StateDir = cur.StateDir
+	out.FirecrackerBin = cur.FirecrackerBin
+	out.JailerBin = cur.JailerBin
+	out.Jailer.ChrootBaseDir = cur.Jailer.ChrootBaseDir
+	out.Kernel = cur.Kernel
+	out.KernelURL = cur.KernelURL
+	out.Rootfs = cur.Rootfs
+	out.GuestAgentBin = cur.GuestAgentBin
+	out.WaitTimeoutSec = cur.WaitTimeoutSec
+	out.StopTimeoutSec = cur.StopTimeoutSec
+	out.Verbose = cur.Verbose
+	out.EnableExperimental = cur.EnableExperimental
+	return out
 }
 
 // setupHostNetwork brings up the TAP device and firewall rules for a slot.
@@ -783,21 +794,29 @@ func (m *Manager) Stop(id string) error {
 	}
 	switch info.Status {
 	case StatusStopped:
-		return nil
-	case StatusLegacy:
-		// Nothing to come back to: it has no configuration record.
-		if err := m.cleanupVM(id, info.State); err != nil {
+		// A stop that was interrupted after its record was written can leave
+		// the runtime state and its host resources behind; finish the job.
+		if info.State == nil {
+			return nil
+		}
+		m.releaseRuntime(info.State)
+		if err := removeRuntimeState(m.cfg.StateDir, id); err != nil {
 			return err
 		}
 		m.releaseHostNetwork()
 		return nil
+	case StatusLegacy, StatusIncomplete:
+		// Nothing to come back to: no configuration record, or a disk that was
+		// never finished.
+		return m.deleteVM(id, info.State)
 	}
 	return m.stopVM(info)
 }
 
 // stopVM stops a running or crashed VM. The stop record is written before the
-// runtime state goes, so a stop that is interrupted partway still reads as a
-// crash rather than as a stop that did not finish.
+// runtime state goes. A stop interrupted before the record is written reads as
+// a crash; one interrupted between the two reads as stopped, with runtime
+// state left over that the next stop or start clears.
 func (m *Manager) stopVM(info *Info) error {
 	state := info.State
 	// A process that is already gone crashed, so its image may be damaged.
@@ -844,10 +863,16 @@ func (m *Manager) stopForRestart(id string) error {
 	switch info.Status {
 	case StatusLegacy:
 		return errLegacy(id)
+	case StatusIncomplete:
+		return errIncomplete(id)
 	case StatusRunning:
 		return m.stopVM(info)
 	}
 	return nil
+}
+
+func errIncomplete(id string) error {
+	return fmt.Errorf("VM %q was never fully created, so its disk may be half built; run `fcvm delete %s` and create it again", id, id)
 }
 
 func errLegacy(id string) error {
@@ -872,7 +897,13 @@ func (m *Manager) Delete(id string, force bool) error {
 	if info.Status == StatusRunning && !force {
 		return fmt.Errorf("VM %q is running; stop it first or use --force", id)
 	}
-	if err := m.cleanupVM(id, info.State); err != nil {
+	return m.deleteVM(id, info.State)
+}
+
+// deleteVM removes a VM completely and releases the host network if it was the
+// last one running.
+func (m *Manager) deleteVM(id string, state *State) error {
+	if err := m.cleanupVM(id, state); err != nil {
 		return err
 	}
 	m.releaseHostNetwork()

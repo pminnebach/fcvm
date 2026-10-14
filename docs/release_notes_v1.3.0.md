@@ -13,7 +13,7 @@ Stopped VMs can now be started again.
 - `fcvm start <id>` boots a stopped or crashed VM again from its preserved disk with the configuration it was created with (a cold boot, not a memory restore). `--mount` and `--env` are rejected for an existing VM.
 - `fcvm restart <id>` stops a running VM and starts it again, or just starts a stopped or crashed one. It never creates a VM.
 - `fcvm delete <id>` removes a VM, its disk and its network slot. A running VM needs `--force`.
-- `fcvm list` shows `running`, `stopped`, `crashed` or `legacy`, and when a VM was stopped. A VM you stopped is told apart from one whose process died.
+- `fcvm list` shows `running`, `stopped`, `crashed`, `legacy` or `incomplete`, and when a VM was stopped. A VM you stopped is told apart from one whose process died.
 - `fcvm exec`, `shell`, `attach` and `vsock-exec` on a VM that is not running now say so and how to start it.
 - A stopped VM keeps its network index, so in TAP mode it comes back on the same guest IP and a new VM cannot take it. In CNI mode the address is assigned at each start.
 - Per-VM records are now split: `config.json` (written once), `state.json` (while running) and `stopped.json`.

@@ -10,7 +10,7 @@ import (
 
 var deleteCmd = &cobra.Command{
 	Use:   "delete <id>",
-	Short: "Delete a microVM, its disk and its reserved network slot",
+	Short: "Delete a VM, its disk and its reserved network slot",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		c, err := loadConfig()

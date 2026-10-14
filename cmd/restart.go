@@ -10,7 +10,7 @@ import (
 
 var restartCmd = &cobra.Command{
 	Use:   "restart <id>",
-	Short: "Stop a microVM if it is running, then start it again from its disk",
+	Short: "Stop a VM if it is running, then start it again from its disk",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		c, err := loadConfig()
