@@ -294,3 +294,89 @@ func TestResolveFlagsAndEnvOverrideFile(t *testing.T) {
 		t.Fatalf("MemSizeMib = %d, want 4096 from FCVM_MEM_SIZE_MIB", c.MemSizeMib)
 	}
 }
+
+func TestResolveRefusesStateDirInDirectoryConfig(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	path := writeConfigFile(t, cwd, "state-dir: /elsewhere\n")
+
+	_, _, err := Resolve(viper.New(), ResolveInput{Cwd: cwd, Home: home, UID: os.Getuid()})
+	if err == nil {
+		t.Fatal("want an error for state-dir in a Directory config")
+	}
+	if !strings.Contains(err.Error(), path) || !strings.Contains(err.Error(), "state-dir") {
+		t.Fatalf("error %q should name the file %s and state-dir", err, path)
+	}
+}
+
+func TestResolveAllowsStateDirInUserAndExplicitConfig(t *testing.T) {
+	home, cwd, other := t.TempDir(), t.TempDir(), t.TempDir()
+	writeConfigFile(t, home, "state-dir: /from-user\n")
+
+	c, _, err := Resolve(viper.New(), ResolveInput{Cwd: cwd, Home: home, UID: os.Getuid()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.StateDir != "/from-user" {
+		t.Fatalf("StateDir = %q, want /from-user", c.StateDir)
+	}
+
+	// An explicit --config file named .fcvm.yaml in the current directory is
+	// still an explicit file, not a Directory config.
+	explicit := writeConfigFile(t, other, "state-dir: /from-explicit\n")
+	c, _, err = Resolve(viper.New(), ResolveInput{ConfigFile: explicit, Cwd: other, Home: home, UID: os.Getuid()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.StateDir != "/from-explicit" {
+		t.Fatalf("StateDir = %q, want /from-explicit", c.StateDir)
+	}
+}
+
+func TestResolveStateDirFromFlagAndEnvWorksWithDirectoryConfig(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	writeConfigFile(t, home, "state-dir: /from-user\n")
+	writeConfigFile(t, cwd, "vcpu-count: 8\n")
+
+	flags := pflag.NewFlagSet("fcvm", pflag.ContinueOnError)
+	flags.String("state-dir", "", "")
+	if err := flags.Parse([]string{"--state-dir", "/from-flag"}); err != nil {
+		t.Fatal(err)
+	}
+	v := viper.New()
+	if err := v.BindPFlag("state-dir", flags.Lookup("state-dir")); err != nil {
+		t.Fatal(err)
+	}
+	c, _, err := Resolve(v, ResolveInput{Cwd: cwd, Home: home, UID: os.Getuid()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.StateDir != "/from-flag" {
+		t.Fatalf("StateDir = %q, want /from-flag", c.StateDir)
+	}
+
+	v = viper.New()
+	v.SetEnvPrefix("FCVM")
+	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
+	v.AutomaticEnv()
+	t.Setenv("FCVM_STATE_DIR", "/from-env")
+	c, _, err = Resolve(v, ResolveInput{Cwd: cwd, Home: home, UID: os.Getuid()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.StateDir != "/from-env" {
+		t.Fatalf("StateDir = %q, want /from-env", c.StateDir)
+	}
+}
+
+func TestResolveDirectoryConfigMayPinKernelRootfsAndBinaries(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	writeConfigFile(t, cwd, "kernel: /k/vmlinux\nrootfs: /r/rootfs.ext4\nfirecracker-bin: /b/firecracker\njailer-bin: /b/jailer\nguest-agent-bin: /b/agent\n")
+
+	c, _, err := Resolve(viper.New(), ResolveInput{Cwd: cwd, Home: home, UID: os.Getuid()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Kernel != "/k/vmlinux" || c.Rootfs != "/r/rootfs.ext4" || c.FirecrackerBin != "/b/firecracker" || c.JailerBin != "/b/jailer" || c.GuestAgentBin != "/b/agent" {
+		t.Fatalf("Directory config values not applied: %+v", c)
+	}
+}
