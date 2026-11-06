@@ -21,6 +21,12 @@ When fcvm runs in a directory that contains `.fcvm.yaml`, that **Directory confi
 - If the current directory can't be determined or read, there is no Directory config and no error.
 - `--config <path>` is exclusive: only that file is read, neither the Directory config nor the User config is, and a missing file is an error.
 
+### `state-dir` is not allowed in a Directory config
+
+A Directory config that sets `state-dir` is refused: the command fails with an error naming the file and the key. This keeps one state directory per user, so `fcvm list`, `stop` and `delete` see the same VMs from every directory, and two state directories never give out the same network slot (TAP device and IPs) to two running VMs.
+
+`state-dir` still works from the `--state-dir` flag, `FCVM_STATE_DIR`, the User config and an explicit `--config` file. Every other key, including the binary paths, `kernel` and `rootfs`, is allowed in a Directory config.
+
 Hyphens and dots in keys become underscores in env names: `network.tap-ip` → `FCVM_NETWORK_TAP_IP`, `vcpu-count` → `FCVM_VCPU_COUNT`.
 
 `~` in paths expands using `SUDO_USER`’s home when present, otherwise the current user’s home.

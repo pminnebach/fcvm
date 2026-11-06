@@ -55,6 +55,11 @@ func Resolve(v *viper.Viper, in ResolveInput) (Config, []string, error) {
 			if err := readLayer(v, f); err != nil {
 				return Default(), nil, err
 			}
+			if isDirectoryConfig(in, f) {
+				if err := refuseStateDir(f); err != nil {
+					return Default(), nil, err
+				}
+			}
 			files = append(files, f)
 		}
 	}
@@ -132,6 +137,36 @@ func searchFiles(in ResolveInput) []string {
 		}
 	}
 	return out
+}
+
+// isDirectoryConfig reports whether path, a file from searchFiles, is the
+// Directory config rather than the User config (when the current directory is
+// the home directory the one file is the User config).
+func isDirectoryConfig(in ResolveInput, path string) bool {
+	if in.Cwd == "" {
+		return false
+	}
+	if in.Home != "" && sameFile(path, filepath.Join(in.Home, ".fcvm.yaml")) {
+		return false
+	}
+	return sameFile(path, filepath.Join(in.Cwd, ".fcvm.yaml"))
+}
+
+// refuseStateDir fails when the Directory config at path sets state-dir. It
+// checks that file on its own, so state-dir from a flag, FCVM_* variable or
+// the User config never trips it. One state directory per user keeps
+// list/stop/delete consistent and network slots from being handed out twice.
+func refuseStateDir(path string) error {
+	own := viper.New()
+	own.SetConfigFile(path)
+	own.SetConfigType("yaml")
+	if err := own.ReadInConfig(); err != nil {
+		return fmt.Errorf("config file %s: %w", path, err)
+	}
+	if own.InConfig("state-dir") {
+		return fmt.Errorf("config file %s: state-dir is not allowed in a Directory config (set it in the User config, with --config, or with a flag or FCVM_STATE_DIR)", path)
+	}
+	return nil
 }
 
 func sameFile(a, b string) bool {
