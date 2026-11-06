@@ -57,6 +57,24 @@ func TestHelpLikeCommandsIgnoreBrokenConfig(t *testing.T) {
 	}
 }
 
+func TestOrdinaryCommandFailsOnBrokenDirectoryConfig(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("SUDO_USER", "")
+	cwd := t.TempDir()
+	path := filepath.Join(cwd, ".fcvm.yaml")
+	if err := os.WriteFile(path, []byte("vcpu-count: [unclosed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(cwd)
+	_, err := runCLI(t, t.TempDir(), "list")
+	if err == nil {
+		t.Fatal("list succeeded on a broken Directory config")
+	}
+	if !strings.Contains(err.Error(), path) {
+		t.Fatalf("want an error naming %s, got %v", path, err)
+	}
+}
+
 func TestOrdinaryCommandFailsOnBrokenConfig(t *testing.T) {
 	brokenUserConfig(t)
 	_, err := runCLI(t, t.TempDir(), "list")

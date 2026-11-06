@@ -117,6 +117,56 @@ func TestResolveMissingExplicitConfigIsAnError(t *testing.T) {
 	}
 }
 
+func TestResolveSyntaxErrorNamesFile(t *testing.T) {
+	for _, where := range []string{"user", "directory"} {
+		t.Run(where, func(t *testing.T) {
+			home, cwd := t.TempDir(), t.TempDir()
+			dir := home
+			if where == "directory" {
+				dir = cwd
+			}
+			path := writeConfigFile(t, dir, "vcpu-count: [unclosed\n")
+
+			_, _, err := Resolve(viper.New(), ResolveInput{Cwd: cwd, Home: home, UID: os.Getuid()})
+			if err == nil {
+				t.Fatal("want an error for a YAML syntax error")
+			}
+			if !strings.Contains(err.Error(), path) {
+				t.Fatalf("error %q does not name %s", err, path)
+			}
+		})
+	}
+}
+
+func TestResolveWrongTypeNamesFile(t *testing.T) {
+	t.Run("user config, directory config valid", func(t *testing.T) {
+		home, cwd := t.TempDir(), t.TempDir()
+		bad := writeConfigFile(t, home, "vcpu-count: \"four\"\n")
+		writeConfigFile(t, cwd, "mem-size-mib: 1024\n")
+		_, _, err := Resolve(viper.New(), ResolveInput{Cwd: cwd, Home: home, UID: os.Getuid()})
+		if err == nil || !strings.Contains(err.Error(), bad) {
+			t.Fatalf("want an error naming %s, got %v", bad, err)
+		}
+	})
+	t.Run("directory config", func(t *testing.T) {
+		home, cwd := t.TempDir(), t.TempDir()
+		bad := writeConfigFile(t, cwd, "vcpu-count: \"four\"\n")
+		_, _, err := Resolve(viper.New(), ResolveInput{Cwd: cwd, Home: home, UID: os.Getuid()})
+		if err == nil || !strings.Contains(err.Error(), bad) {
+			t.Fatalf("want an error naming %s, got %v", bad, err)
+		}
+	})
+	t.Run("explicit config, user config valid", func(t *testing.T) {
+		home, other := t.TempDir(), t.TempDir()
+		writeConfigFile(t, home, "mem-size-mib: 1024\n")
+		bad := writeConfigFile(t, other, "vcpu-count: \"four\"\n")
+		_, _, err := Resolve(viper.New(), ResolveInput{ConfigFile: bad, Cwd: t.TempDir(), Home: home, UID: os.Getuid()})
+		if err == nil || !strings.Contains(err.Error(), bad) {
+			t.Fatalf("want an error naming %s, got %v", bad, err)
+		}
+	})
+}
+
 func TestResolveKeepsEnvCasing(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
 	writeConfigFile(t, home, "env:\n  MY_VAR: hello\n  Mixed_Case: world\n")
