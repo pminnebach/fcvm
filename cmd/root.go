@@ -9,6 +9,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
@@ -18,6 +19,10 @@ import (
 var (
 	cfgFile string
 	cfg     config.Config
+	// cfgFiles are the Config files used by this run, in the order read.
+	cfgFiles []string
+	// debugLog receives debug-level messages, shown with --verbose.
+	debugLog = logrus.New()
 )
 
 var rootCmd = &cobra.Command{
@@ -90,11 +95,11 @@ func init() {
 		if skipsConfig(cmd) {
 			return nil
 		}
-		c, err := resolveConfig()
+		c, files, err := resolveConfig()
 		if err != nil {
 			return err
 		}
-		cfg = c
+		cfg, cfgFiles = c, files
 		return confirmExperimental(cmd, c, experimentalReasons(cmd, c))
 	}
 }
@@ -117,7 +122,7 @@ func skipsConfig(cmd *cobra.Command) bool {
 
 // resolveConfig gathers this run's inputs and resolves the Config against the
 // flag and FCVM_* environment layers bound on the global viper.
-func resolveConfig() (config.Config, error) {
+func resolveConfig() (config.Config, []string, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
 		cwd = ""
@@ -126,13 +131,20 @@ func resolveConfig() (config.Config, error) {
 	if err != nil {
 		home = ""
 	}
-	c, _, err := config.Resolve(viper.GetViper(), config.ResolveInput{
+	in := config.ResolveInput{
 		ConfigFile: cfgFile,
 		Cwd:        cwd,
 		Home:       home,
 		UID:        invokingUID(),
-	})
-	return c, err
+	}
+	c, files, err := config.Resolve(viper.GetViper(), in)
+	if v, _ := rootCmd.PersistentFlags().GetBool("verbose"); v || viper.GetBool("verbose") {
+		debugLog.SetLevel(logrus.DebugLevel)
+	}
+	for _, f := range files {
+		debugLog.Debugf("read %s: %s", config.FileRole(in, f), f)
+	}
+	return c, files, err
 }
 
 // invokingUID is the user who ran fcvm: the SUDO_UID user under sudo,

@@ -60,7 +60,7 @@ func TestLoadConfigPreservesEnvCase(t *testing.T) {
 	cfgFile = path
 	t.Cleanup(func() { cfgFile = prev })
 
-	c, err := resolveConfig()
+	c, _, err := resolveConfig()
 	if err != nil {
 		t.Fatal(err)
 	}

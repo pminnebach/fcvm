@@ -38,6 +38,11 @@ Otherwise the command fails with an error naming the file and the reason: wrong 
 
 The check applies only to a file found by the current-directory search. It does not apply to the User config, to `--config`, or when the current directory is home.
 
+### Seeing which files were used
+
+- With `--verbose`, each Config file read is logged at debug level with its role (`User config`, `Directory config` or `explicit --config`), in the order read.
+- `fcvm self-check` prints a `config files:` line listing the files used, or `none`. It prints this before the `/dev/kvm` and root checks, so the line shows even when self-check skips.
+
 Hyphens and dots in keys become underscores in env names: `network.tap-ip` → `FCVM_NETWORK_TAP_IP`, `vcpu-count` → `FCVM_VCPU_COUNT`.
 
 `~` in paths expands using `SUDO_USER`’s home when present, otherwise the current user’s home.
