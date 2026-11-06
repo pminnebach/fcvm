@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,8 +31,9 @@ type ResolveInput struct {
 // files used, in order.
 //
 // Without an explicit path the User config (~/.fcvm.yaml) is searched before
-// ./.fcvm.yaml, and only the first file found is read. A read failure of that
-// file is ignored, as before.
+// ./.fcvm.yaml, and only the first file found is read. A file that exists but
+// can't be read, parsed or decoded is an error naming it; a missing file is
+// not (except an explicit --config path).
 func Resolve(v *viper.Viper, in ResolveInput) (Config, []string, error) {
 	setDefaults(v)
 
@@ -50,11 +52,15 @@ func Resolve(v *viper.Viper, in ResolveInput) (Config, []string, error) {
 	var files []string
 	if err := v.ReadInConfig(); err == nil {
 		files = append(files, v.ConfigFileUsed())
+	} else if _, notFound := err.(viper.ConfigFileNotFoundError); !notFound {
+		// Found but unusable (syntax error, unreadable), or an explicit
+		// --config path that is missing: a hard error naming the file.
+		return Default(), nil, fmt.Errorf("config file %s: %w", usedOr(v, in.ConfigFile), err)
 	}
 
 	c := Default()
 	if err := v.Unmarshal(&c); err != nil {
-		return c, files, err
+		return c, files, fmt.Errorf("config file %s: %w", strings.Join(files, ", "), err)
 	}
 	if c.Env == nil {
 		c.Env = map[string]string{}
@@ -74,6 +80,14 @@ func Resolve(v *viper.Viper, in ResolveInput) (Config, []string, error) {
 	c.SSHKey = expand(c.SSHKey)
 	c.GuestAgentBin = expand(c.GuestAgentBin)
 	return c, files, nil
+}
+
+// usedOr returns the file viper tried to read, or fallback if it has none yet.
+func usedOr(v *viper.Viper, fallback string) string {
+	if f := v.ConfigFileUsed(); f != "" {
+		return f
+	}
+	return fallback
 }
 
 func setDefaults(v *viper.Viper) {
