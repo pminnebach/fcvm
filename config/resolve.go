@@ -21,7 +21,8 @@ type ResolveInput struct {
 	// Home is the user's home (UserHomeDir, SUDO_USER-aware); empty when it
 	// can't be determined.
 	Home string
-	// UID is the invoking user's uid. Not used yet.
+	// UID is the invoking user's uid (SUDO_UID under sudo, else the effective
+	// uid); a Directory config must be owned by it or by root.
 	UID int
 }
 
@@ -52,6 +53,11 @@ func Resolve(v *viper.Viper, in ResolveInput) (Config, []string, error) {
 		files = []string{in.ConfigFile}
 	} else {
 		for _, f := range searchFiles(in) {
+			if isDirectoryConfig(in, f) {
+				if err := checkDirectoryConfigTrust(f, in.UID); err != nil {
+					return Default(), nil, err
+				}
+			}
 			if err := readLayer(v, f); err != nil {
 				return Default(), nil, err
 			}
