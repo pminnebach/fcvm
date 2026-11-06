@@ -88,8 +88,7 @@ func init() {
 	viper.AutomaticEnv()
 
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
-		switch cmd.Name() {
-		case "experimental", "version", "help", "completion":
+		if skipsConfig(cmd) {
 			return nil
 		}
 		c, err := loadConfig()
@@ -98,6 +97,22 @@ func init() {
 		}
 		return confirmExperimental(cmd, c, experimentalReasons(cmd, c))
 	}
+}
+
+// skipsConfig reports whether cmd must run without resolving config, so a
+// broken Config file can't break help or shell completion. It checks the
+// command and its ancestors, because the command that runs for completion is
+// a child (completion bash, zsh, ...) and cmd.Name() is only the leaf.
+// __completeNoDesc is an alias of cobra's __complete, so its Name() is
+// __complete too.
+func skipsConfig(cmd *cobra.Command) bool {
+	for c := cmd; c != nil; c = c.Parent() {
+		switch c.Name() {
+		case "experimental", "version", "help", "completion", cobra.ShellCompRequestCmd:
+			return true
+		}
+	}
+	return false
 }
 
 func initConfig() {
