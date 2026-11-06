@@ -97,13 +97,7 @@ func ExpandPath(path string) string {
 	if err != nil {
 		return path
 	}
-	if path == "~" {
-		return home
-	}
-	if strings.HasPrefix(path, "~/") {
-		return filepath.Join(home, path[2:])
-	}
-	return path
+	return expandPathIn(home, path)
 }
 
 func Default() Config {

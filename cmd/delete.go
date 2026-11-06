@@ -13,10 +13,7 @@ var deleteCmd = &cobra.Command{
 	Short: "Delete a VM, its disk and its reserved network slot",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		c, err := loadConfig()
-		if err != nil {
-			return err
-		}
+		c := cfg
 		force, _ := cmd.Flags().GetBool("force")
 		if err := vm.NewManager(c).Delete(args[0], force); err != nil {
 			return err

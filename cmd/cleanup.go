@@ -13,10 +13,7 @@ var cleanupCmd = &cobra.Command{
 	Short: "Remove a VM and everything it holds, including orphaned resources",
 	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		c, err := loadConfig()
-		if err != nil {
-			return err
-		}
+		c := cfg
 		all, _ := cmd.Flags().GetBool("all")
 		id := ""
 		if len(args) > 0 {

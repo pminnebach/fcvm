@@ -3,6 +3,7 @@ package cmd
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/viper"
@@ -42,8 +43,8 @@ func TestMountFlagOptions(t *testing.T) {
 }
 
 // Viper lowercases every key it reads from the config file, including map
-// values nested under env:. loadConfig must recover the original casing so
-// uppercase env var names from .fcvm.yaml survive, matching the --env CLI
+// values nested under env:. Config resolution must recover the original casing
+// so uppercase env var names from .fcvm.yaml survive, matching the --env CLI
 // flag path (which bypasses viper and is unaffected).
 func TestLoadConfigPreservesEnvCase(t *testing.T) {
 	viper.Reset()
@@ -56,12 +57,11 @@ func TestLoadConfigPreservesEnvCase(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	viper.SetConfigFile(path)
-	if err := viper.ReadInConfig(); err != nil {
-		t.Fatal(err)
-	}
+	prev := cfgFile
+	cfgFile = path
+	t.Cleanup(func() { cfgFile = prev })
 
-	c, err := loadConfig()
+	c, _, err := resolveConfig()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,5 +91,22 @@ func TestMountFlagRejectsUnknownOptions(t *testing.T) {
 		if m, err := mountFlag(bad); err == nil {
 			t.Errorf("mountFlag(%q) = %+v, want an error", bad, m)
 		}
+	}
+}
+
+func TestInvokingUIDRejectsInvalidSudoUID(t *testing.T) {
+	for _, bad := range []string{"abc", "-1", "1.5"} {
+		t.Setenv("SUDO_UID", bad)
+		if _, err := invokingUID(); err == nil || !strings.Contains(err.Error(), "SUDO_UID") {
+			t.Errorf("SUDO_UID=%q: want error naming SUDO_UID, got %v", bad, err)
+		}
+	}
+	t.Setenv("SUDO_UID", "1234")
+	if uid, err := invokingUID(); err != nil || uid != 1234 {
+		t.Errorf("got %d, %v; want 1234", uid, err)
+	}
+	t.Setenv("SUDO_UID", "")
+	if uid, err := invokingUID(); err != nil || uid != os.Geteuid() {
+		t.Errorf("got %d, %v; want euid", uid, err)
 	}
 }

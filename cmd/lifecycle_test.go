@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -45,6 +46,31 @@ func runCLI(t *testing.T, stateDir string, args ...string) (string, error) {
 	rootCmd.SetArgs(args)
 	err := rootCmd.Execute()
 	return out.String(), err
+}
+
+// A Directory config in the working directory reaches a command end to end,
+// layered over the User config under HOME.
+func TestRunCLILayersDirectoryConfigOverUserConfig(t *testing.T) {
+	home, work := t.TempDir(), t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("SUDO_USER", "")
+	if err := os.WriteFile(filepath.Join(home, ".fcvm.yaml"), []byte("vcpu-count: 4\nmem-size-mib: 1024\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(work, ".fcvm.yaml"), []byte("vcpu-count: 8\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(work)
+
+	if _, err := runCLI(t, t.TempDir(), "list"); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.VCPUCount != 8 {
+		t.Fatalf("VCPUCount = %d, want 8 from the Directory config", cfg.VCPUCount)
+	}
+	if cfg.MemSizeMib != 1024 {
+		t.Fatalf("MemSizeMib = %d, want 1024 from the User config", cfg.MemSizeMib)
+	}
 }
 
 func seedStopped(t *testing.T, dir, id string, cni bool) {

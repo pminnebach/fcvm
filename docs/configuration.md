@@ -6,8 +6,44 @@ Highest wins:
 
 1. CLI flags
 2. Environment variables (`FCVM_*`)
-3. Config file (`--config`, else `$HOME/.fcvm.yaml` or `./.fcvm.yaml`)
+3. Config file: with `--config <path>` only that file is read; otherwise the Directory config (`./.fcvm.yaml`) is layered over the User config (`$HOME/.fcvm.yaml`)
 4. Built-in defaults (`config.Default()`)
+
+### Layering the Directory config
+
+When fcvm runs in a directory that contains `.fcvm.yaml`, that **Directory config** is layered over the **User config** (`$HOME/.fcvm.yaml`), which is layered over the built-in defaults.
+
+- A value set in the Directory config wins. A key it leaves out comes from the User config, then from the defaults.
+- Maps merge per key. `env:` is merged per variable, the Directory config wins on a clash, and the original casing of each variable name is kept from both files.
+- Lists, such as `network.nameservers`, are replaced whole, never appended.
+- Only the exact current directory is checked, never its parents, and only the name `.fcvm.yaml`.
+- When the current directory is the home directory, the file is read once, as the User config.
+- If the current directory can't be determined or read, there is no Directory config and no error.
+- `--config <path>` is exclusive: only that file is read, neither the Directory config nor the User config is, and a missing file is an error.
+
+### `state-dir` is not allowed in a Directory config
+
+A Directory config that sets `state-dir` is refused: the command fails with an error naming the file and the key. This keeps one state directory per user, so `fcvm list`, `stop` and `delete` see the same VMs from every directory, and two state directories never give out the same network slot (TAP device and IPs) to two running VMs.
+
+`state-dir` still works from the `--state-dir` flag, `FCVM_STATE_DIR`, the User config and an explicit `--config` file. Every other key, including the binary paths, `kernel` and `rootfs`, is allowed in a Directory config.
+
+### Trusting the Directory config
+
+fcvm runs as root, and a config file decides which binaries it runs (`firecracker-bin`, `jailer-bin`, `guest-agent-bin`). So a Directory config is only trusted when:
+
+- it is owned by the invoking user or by root. The invoking user is the `SUDO_UID` user under sudo, otherwise the effective uid; and
+- it has no group or other write bit.
+
+Otherwise the command fails with an error naming the file and the reason: wrong owner, or group- or world-writable. This stops `cd`-ing into someone else's checkout and running `sudo fcvm ...` from executing their binary as root. Fix it by taking ownership (`chown`) or removing the write bits (`chmod go-w .fcvm.yaml`).
+
+If `.fcvm.yaml` is a symlink to a regular file it is followed, and the link target's owner and mode are what is checked. A `.fcvm.yaml` that exists but is not a regular file (a directory, a dangling symlink) is an error naming the file, not ignored.
+
+The check applies only to a file found by the current-directory search. It does not apply to the User config, to `--config`, or when the current directory is home.
+
+### Seeing which files were used
+
+- With `--verbose`, each Config file read is logged at debug level with its role (`User config`, `Directory config` or `explicit --config`), in the order read.
+- `fcvm self-check` prints a `config files:` line listing the files used, or `none`. It prints this before the `/dev/kvm` and root checks, so the line shows even when self-check skips.
 
 Hyphens and dots in keys become underscores in env names: `network.tap-ip` → `FCVM_NETWORK_TAP_IP`, `vcpu-count` → `FCVM_VCPU_COUNT`.
 

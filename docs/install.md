@@ -84,7 +84,7 @@ sudo ./fcvm stop myvm
 sudo ./fcvm cleanup --all
 ```
 
-Config file: `~/.fcvm.yaml`, `./.fcvm.yaml`, or `--config`. See [configuration.md](configuration.md) and [fcvm.example.yaml](../fcvm.example.yaml).
+Config files: the Directory config (`./.fcvm.yaml`) is layered over the User config (`~/.fcvm.yaml`), or `--config <path>` reads only that file. See [configuration.md](configuration.md) and [fcvm.example.yaml](../fcvm.example.yaml).
 
 Smoke test (needs root + `/dev/kvm` + assets already present):
 

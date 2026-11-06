@@ -37,6 +37,11 @@ routes it to `/dev/null` — the noise is specific to `Exec`/`Shell`/`WriteFile`
 
 ### 2. Shell completion breaks on an unrelated config error
 
+**Status: resolved (#13).** The pre-run hook now skips config resolution when
+the command or any of its ancestors is `completion`, `__complete` (which
+`__completeNoDesc` aliases), `version`, `help` or `experimental`. Covered by
+`cmd/skipconfig_test.go`.
+
 `cmd/root.go:89-93`:
 
 ```go
