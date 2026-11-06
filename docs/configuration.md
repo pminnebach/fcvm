@@ -6,8 +6,20 @@ Highest wins:
 
 1. CLI flags
 2. Environment variables (`FCVM_*`)
-3. Config file (`--config`, else `$HOME/.fcvm.yaml` or `./.fcvm.yaml`)
+3. Config file: with `--config <path>` only that file is read; otherwise the Directory config (`./.fcvm.yaml`) is layered over the User config (`$HOME/.fcvm.yaml`)
 4. Built-in defaults (`config.Default()`)
+
+### Layering the Directory config
+
+When fcvm runs in a directory that contains `.fcvm.yaml`, that **Directory config** is layered over the **User config** (`$HOME/.fcvm.yaml`), which is layered over the built-in defaults.
+
+- A value set in the Directory config wins. A key it leaves out comes from the User config, then from the defaults.
+- Maps merge per key. `env:` is merged per variable, the Directory config wins on a clash, and the original casing of each variable name is kept from both files.
+- Lists, such as `network.nameservers`, are replaced whole, never appended.
+- Only the exact current directory is checked, never its parents, and only the name `.fcvm.yaml`.
+- When the current directory is the home directory, the file is read once, as the User config.
+- If the current directory can't be determined or read, there is no Directory config and no error.
+- `--config <path>` is exclusive: only that file is read, neither the Directory config nor the User config is, and a missing file is an error.
 
 Hyphens and dots in keys become underscores in env names: `network.tap-ip` → `FCVM_NETWORK_TAP_IP`, `vcpu-count` → `FCVM_VCPU_COUNT`.
 

@@ -30,45 +30,50 @@ type ResolveInput struct {
 // the resolved Config (paths expanded, env casing preserved) and the Config
 // files used, in order.
 //
-// Without an explicit path the User config (~/.fcvm.yaml) is searched before
-// ./.fcvm.yaml, and only the first file found is read. A file that exists but
-// can't be read, parsed or decoded is an error naming it; a missing file is
-// not (except an explicit --config path).
+// With an explicit path only that file is read and a failure to read it is an
+// error. Otherwise the Directory config (./.fcvm.yaml in the exact current
+// directory, never its parents) is layered over the User config
+// (~/.fcvm.yaml): a key the Directory config sets wins, a key it leaves out
+// comes from the User config, maps merge per key and lists are replaced. When
+// the current directory is the home directory the file is read once, as the
+// User config. A missing current directory means no Directory config. A
+// Config file that exists but can't be read, parsed or decoded is an error
+// naming it (each file is also decoded on its own, so a wrong-typed value
+// reports the first file that fails); a missing file is not, except an
+// explicit --config path.
 func Resolve(v *viper.Viper, in ResolveInput) (Config, []string, error) {
 	setDefaults(v)
 
-	if in.ConfigFile != "" {
-		v.SetConfigFile(in.ConfigFile)
-	} else {
-		if in.Home != "" {
-			v.AddConfigPath(in.Home)
-			v.SetConfigName(".fcvm")
-			v.SetConfigType("yaml")
-		}
-		if in.Cwd != "" {
-			v.AddConfigPath(in.Cwd)
-		}
-	}
 	var files []string
-	if err := v.ReadInConfig(); err == nil {
-		files = append(files, v.ConfigFileUsed())
-	} else if _, notFound := err.(viper.ConfigFileNotFoundError); !notFound {
-		// Found but unusable (syntax error, unreadable), or an explicit
-		// --config path that is missing: a hard error naming the file.
-		return Default(), nil, fmt.Errorf("config file %s: %w", usedOr(v, in.ConfigFile), err)
+	if in.ConfigFile != "" {
+		if err := readLayer(v, in.ConfigFile); err != nil {
+			return Default(), nil, err
+		}
+		files = []string{in.ConfigFile}
+	} else {
+		for _, f := range searchFiles(in) {
+			if err := readLayer(v, f); err != nil {
+				return Default(), nil, err
+			}
+			files = append(files, f)
+		}
 	}
 
 	c := Default()
 	if err := v.Unmarshal(&c); err != nil {
 		return c, files, fmt.Errorf("config file %s: %w", strings.Join(files, ", "), err)
 	}
-	if c.Env == nil {
-		c.Env = map[string]string{}
-	}
-	if env, err := rawConfigEnv(v.ConfigFileUsed()); err != nil {
-		return c, files, err
-	} else if env != nil {
-		c.Env = env
+	// viper lowercases env names, so re-read every file used and merge env
+	// per key in order; later files win.
+	c.Env = map[string]string{}
+	for _, f := range files {
+		env, err := rawConfigEnv(f)
+		if err != nil {
+			return c, files, err
+		}
+		for k, val := range env {
+			c.Env[k] = val
+		}
 	}
 	expand := func(p string) string { return expandPathIn(in.Home, p) }
 	c.StateDir = expand(c.StateDir)
@@ -82,12 +87,63 @@ func Resolve(v *viper.Viper, in ResolveInput) (Config, []string, error) {
 	return c, files, nil
 }
 
-// usedOr returns the file viper tried to read, or fallback if it has none yet.
-func usedOr(v *viper.Viper, fallback string) string {
-	if f := v.ConfigFileUsed(); f != "" {
-		return f
+// readLayer checks one Config file on its own (read, parse, decode) so any
+// failure names that file, then merges it into v on top of what is already
+// there.
+func readLayer(v *viper.Viper, path string) error {
+	own := viper.New()
+	own.SetConfigFile(path)
+	own.SetConfigType("yaml")
+	if err := own.ReadInConfig(); err != nil {
+		return fmt.Errorf("config file %s: %w", path, err)
 	}
-	return fallback
+	if err := own.Unmarshal(&Config{}); err != nil {
+		return fmt.Errorf("config file %s: %w", path, err)
+	}
+	v.SetConfigFile(path)
+	v.SetConfigType("yaml")
+	if err := v.MergeInConfig(); err != nil {
+		return fmt.Errorf("config file %s: %w", path, err)
+	}
+	return nil
+}
+
+// searchFiles lists the Config files to read without --config, lowest
+// precedence first: the User config, then the Directory config. Only files
+// that exist are returned.
+func searchFiles(in ResolveInput) []string {
+	var user, dir string
+	if in.Home != "" {
+		user = filepath.Join(in.Home, ".fcvm.yaml")
+	}
+	if in.Cwd != "" {
+		dir = filepath.Join(in.Cwd, ".fcvm.yaml")
+	}
+	if user != "" && dir != "" && sameFile(user, dir) {
+		dir = ""
+	}
+	var out []string
+	for _, f := range []string{user, dir} {
+		if f == "" {
+			continue
+		}
+		if fi, err := os.Stat(f); err == nil && fi.Mode().IsRegular() {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+func sameFile(a, b string) bool {
+	if filepath.Clean(a) == filepath.Clean(b) {
+		return true
+	}
+	fa, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	fb, err := os.Stat(b)
+	return err == nil && os.SameFile(fa, fb)
 }
 
 func setDefaults(v *viper.Viper) {

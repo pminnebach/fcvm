@@ -4,7 +4,7 @@ Global persistent flags (also bindable via config / `FCVM_*` env — see [config
 
 | Flag | Default | Meaning |
 |------|---------|---------|
-| `--config` | `$HOME/.fcvm.yaml` / `./.fcvm.yaml` | Config file path |
+| `--config` | `./.fcvm.yaml` over `$HOME/.fcvm.yaml` | Read only this Config file; the Directory config and User config are not read |
 | `--state-dir` | `~/.fcvm` | State directory |
 | `--firecracker-bin` | `~/.fcvm/bin/firecracker` | Firecracker binary |
 | `--jailer-bin` | `~/.fcvm/bin/jailer` | Jailer binary |

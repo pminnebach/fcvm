@@ -55,22 +55,106 @@ func TestResolveReadsFileOnlyInCwd(t *testing.T) {
 	}
 }
 
-// Today only one Config file is read: when both exist the User config wins and
-// the file in the current directory is ignored entirely.
-func TestResolveUserConfigWinsWhenBothExist(t *testing.T) {
+func TestResolveDirectoryConfigWinsAndFallsThrough(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
-	userPath := writeConfigFile(t, home, "vcpu-count: 4\n")
-	writeConfigFile(t, cwd, "vcpu-count: 8\nmem-size-mib: 2048\n")
+	userPath := writeConfigFile(t, home, "vcpu-count: 4\nmem-size-mib: 1024\n")
+	dirPath := writeConfigFile(t, cwd, "vcpu-count: 8\n")
 
 	c, files, err := Resolve(viper.New(), ResolveInput{Cwd: cwd, Home: home, UID: os.Getuid()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.VCPUCount != 4 || c.MemSizeMib != 512 {
-		t.Fatalf("VCPUCount, MemSizeMib = %d, %d, want 4, 512", c.VCPUCount, c.MemSizeMib)
+	if c.VCPUCount != 8 {
+		t.Fatalf("VCPUCount = %d, want 8 from the Directory config", c.VCPUCount)
 	}
-	if !reflect.DeepEqual(files, []string{userPath}) {
-		t.Fatalf("files = %v, want [%s]", files, userPath)
+	if c.MemSizeMib != 1024 {
+		t.Fatalf("MemSizeMib = %d, want 1024 from the User config", c.MemSizeMib)
+	}
+	if c.StopTimeoutSec != Default().StopTimeoutSec {
+		t.Fatalf("StopTimeoutSec = %d, want the default", c.StopTimeoutSec)
+	}
+	if want := []string{userPath, dirPath}; !reflect.DeepEqual(files, want) {
+		t.Fatalf("files = %v, want %v", files, want)
+	}
+}
+
+func TestResolveMergesEnvPerKeyKeepingCasing(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	writeConfigFile(t, home, "env:\n  SHARED: user\n  USER_ONLY: u\n")
+	writeConfigFile(t, cwd, "env:\n  SHARED: dir\n  Dir_Only: d\n")
+
+	c, _, err := Resolve(viper.New(), ResolveInput{Cwd: cwd, Home: home, UID: os.Getuid()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"SHARED": "dir", "USER_ONLY": "u", "Dir_Only": "d"}
+	if !reflect.DeepEqual(c.Env, want) {
+		t.Fatalf("Env = %v, want %v", c.Env, want)
+	}
+}
+
+func TestResolveReplacesLists(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	writeConfigFile(t, home, "network:\n  nameservers: [1.1.1.1, 1.0.0.1]\n  tap-ip: 172.16.5.1\n")
+	writeConfigFile(t, cwd, "network:\n  nameservers: [9.9.9.9]\n")
+
+	c, _, err := Resolve(viper.New(), ResolveInput{Cwd: cwd, Home: home, UID: os.Getuid()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"9.9.9.9"}; !reflect.DeepEqual(c.Network.Nameservers, want) {
+		t.Fatalf("Nameservers = %v, want %v", c.Network.Nameservers, want)
+	}
+	if c.Network.TapIP != "172.16.5.1" {
+		t.Fatalf("TapIP = %q, want it kept from the User config", c.Network.TapIP)
+	}
+}
+
+func TestResolveCwdEqualToHomeReadsFileOnce(t *testing.T) {
+	home := t.TempDir()
+	path := writeConfigFile(t, home, "vcpu-count: 4\nenv:\n  A: b\n")
+
+	c, files, err := Resolve(viper.New(), ResolveInput{Cwd: home, Home: home, UID: os.Getuid()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(files, []string{path}) {
+		t.Fatalf("files = %v, want [%s] once", files, path)
+	}
+	if c.VCPUCount != 4 {
+		t.Fatalf("VCPUCount = %d, want 4", c.VCPUCount)
+	}
+}
+
+func TestResolveMissingCwdGivesNoDirectoryConfigAndNoError(t *testing.T) {
+	home := t.TempDir()
+	userPath := writeConfigFile(t, home, "vcpu-count: 4\n")
+
+	for _, cwd := range []string{"", filepath.Join(t.TempDir(), "gone")} {
+		c, files, err := Resolve(viper.New(), ResolveInput{Cwd: cwd, Home: home, UID: os.Getuid()})
+		if err != nil {
+			t.Fatalf("cwd %q: %v", cwd, err)
+		}
+		if c.VCPUCount != 4 || !reflect.DeepEqual(files, []string{userPath}) {
+			t.Fatalf("cwd %q: VCPUCount, files = %d, %v", cwd, c.VCPUCount, files)
+		}
+	}
+}
+
+func TestResolveDoesNotCheckParentDirectories(t *testing.T) {
+	home, parent := t.TempDir(), t.TempDir()
+	writeConfigFile(t, parent, "vcpu-count: 8\n")
+	child := filepath.Join(parent, "child")
+	if err := os.Mkdir(child, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	c, files, err := Resolve(viper.New(), ResolveInput{Cwd: child, Home: home, UID: os.Getuid()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.VCPUCount != 2 || len(files) != 0 {
+		t.Fatalf("VCPUCount, files = %d, %v, want 2 and none", c.VCPUCount, files)
 	}
 }
 
