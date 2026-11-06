@@ -2,7 +2,7 @@
 
 | Version | Date | Summary |
 |---------|------|---------|
-| [Unreleased](release_notes_unreleased.md) | - | Directory config layered over the User config; trust check and `state-dir` refusal for the Directory config |
+| [v1.4.0](release_notes_v1.4.0.md) | 2026-11-06 | Directory config layered over the User config; trust check and `state-dir` refusal for the Directory config |
 | [v1.3.0](release_notes_v1.3.0.md) | 2026-10-14 | `stop` keeps the VM; `start <id>`, `restart`, `delete`; stopped/crashed statuses; fix VMs dying after `start` |
 | [v1.2.2](release_notes_v1.2.2.md) | 2026-09-14 | Fix uppercase `.fcvm.yaml` env vars getting lowercased in the guest |
 | [v1.2.1](release_notes_v1.2.1.md) | 2026-09-14 | Fix `shell`/`exec` failing right after `start` with "No route to host" |
@@ -10,7 +10,11 @@
 | v1.1.0 | 2026-07-26 | Jailer/machine knobs; optional CNI; product docs tree |
 | v1.0.0 | 2026-07-17 | Initial CLI; GoReleaser; `fcvm version` |
 
-Full notes for the latest release: [release_notes_v1.3.0.md](release_notes_v1.3.0.md).
+Full notes for the latest release: [release_notes_v1.4.0.md](release_notes_v1.4.0.md).
+
+## v1.4.0 (2026-11-06)
+
+A `.fcvm.yaml` in the current directory (the Directory config) is now layered over `~/.fcvm.yaml` (the User config) instead of being ignored. A Directory config must be owned by you or root and not group/world-writable, and may not set `state-dir`. Broken config files are now errors, shell completion no longer loads config, and `fcvm self-check` lists the config files used. See [release_notes_v1.4.0.md](release_notes_v1.4.0.md).
 
 ## v1.3.0 (2026-10-14)
 
