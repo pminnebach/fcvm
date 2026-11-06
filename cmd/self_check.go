@@ -21,10 +21,7 @@ var selfCheckCmd = &cobra.Command{
 		if os.Geteuid() != 0 {
 			return fmt.Errorf("self-check requires root")
 		}
-		c, err := loadConfig()
-		if err != nil {
-			return err
-		}
+		c := cfg
 		mgr := vm.NewManager(c)
 		id := "selfcheck"
 		_ = mgr.Cleanup(false, id)

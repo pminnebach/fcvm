@@ -16,10 +16,7 @@ var listCmd = &cobra.Command{
 	Short: "List VMs",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		c, err := loadConfig()
-		if err != nil {
-			return err
-		}
+		c := cfg
 		infos, err := vm.NewManager(c).List()
 		if err != nil {
 			return err

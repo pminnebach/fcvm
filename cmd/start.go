@@ -13,10 +13,7 @@ var startCmd = &cobra.Command{
 	Short: "Start a Firecracker VM (always via jailer), or boot a stopped one again",
 	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		c, err := loadConfig()
-		if err != nil {
-			return err
-		}
+		c := cfg
 		id, _ := cmd.Flags().GetString("id")
 		if id == "" && len(args) > 0 {
 			id = args[0]
