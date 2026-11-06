@@ -29,40 +29,46 @@ type ResolveInput struct {
 // the resolved Config (paths expanded, env casing preserved) and the Config
 // files used, in order.
 //
-// Without an explicit path the User config (~/.fcvm.yaml) is searched before
-// ./.fcvm.yaml, and only the first file found is read. A read failure of that
-// file is ignored, as before.
+// With an explicit path only that file is read and a failure to read it is an
+// error. Otherwise the Directory config (./.fcvm.yaml in the exact current
+// directory, never its parents) is layered over the User config
+// (~/.fcvm.yaml): a key the Directory config sets wins, a key it leaves out
+// comes from the User config, maps merge per key and lists are replaced. When
+// the current directory is the home directory the file is read once, as the
+// User config. A missing current directory means no Directory config. A
+// Config file that exists but can't be read is skipped, as before.
 func Resolve(v *viper.Viper, in ResolveInput) (Config, []string, error) {
 	setDefaults(v)
 
-	if in.ConfigFile != "" {
-		v.SetConfigFile(in.ConfigFile)
-	} else {
-		if in.Home != "" {
-			v.AddConfigPath(in.Home)
-			v.SetConfigName(".fcvm")
-			v.SetConfigType("yaml")
-		}
-		if in.Cwd != "" {
-			v.AddConfigPath(in.Cwd)
-		}
-	}
 	var files []string
-	if err := v.ReadInConfig(); err == nil {
-		files = append(files, v.ConfigFileUsed())
+	if in.ConfigFile != "" {
+		if err := readLayer(v, in.ConfigFile); err != nil {
+			return Default(), nil, err
+		}
+		files = []string{in.ConfigFile}
+	} else {
+		for _, f := range searchFiles(in) {
+			if readLayer(v, f) == nil {
+				files = append(files, f)
+			}
+		}
 	}
 
 	c := Default()
 	if err := v.Unmarshal(&c); err != nil {
 		return c, files, err
 	}
-	if c.Env == nil {
-		c.Env = map[string]string{}
-	}
-	if env, err := rawConfigEnv(v.ConfigFileUsed()); err != nil {
-		return c, files, err
-	} else if env != nil {
-		c.Env = env
+	// viper lowercases env names, so re-read every file used and merge env
+	// per key in order; later files win.
+	c.Env = map[string]string{}
+	for _, f := range files {
+		env, err := rawConfigEnv(f)
+		if err != nil {
+			return c, files, err
+		}
+		for k, val := range env {
+			c.Env[k] = val
+		}
 	}
 	expand := func(p string) string { return expandPathIn(in.Home, p) }
 	c.StateDir = expand(c.StateDir)
@@ -74,6 +80,51 @@ func Resolve(v *viper.Viper, in ResolveInput) (Config, []string, error) {
 	c.SSHKey = expand(c.SSHKey)
 	c.GuestAgentBin = expand(c.GuestAgentBin)
 	return c, files, nil
+}
+
+// readLayer merges one Config file into v on top of what is already there.
+func readLayer(v *viper.Viper, path string) error {
+	v.SetConfigFile(path)
+	v.SetConfigType("yaml")
+	return v.MergeInConfig()
+}
+
+// searchFiles lists the Config files to read without --config, lowest
+// precedence first: the User config, then the Directory config. Only files
+// that exist are returned.
+func searchFiles(in ResolveInput) []string {
+	var user, dir string
+	if in.Home != "" {
+		user = filepath.Join(in.Home, ".fcvm.yaml")
+	}
+	if in.Cwd != "" {
+		dir = filepath.Join(in.Cwd, ".fcvm.yaml")
+	}
+	if user != "" && dir != "" && sameFile(user, dir) {
+		dir = ""
+	}
+	var out []string
+	for _, f := range []string{user, dir} {
+		if f == "" {
+			continue
+		}
+		if fi, err := os.Stat(f); err == nil && fi.Mode().IsRegular() {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+func sameFile(a, b string) bool {
+	if filepath.Clean(a) == filepath.Clean(b) {
+		return true
+	}
+	fa, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	fb, err := os.Stat(b)
+	return err == nil && os.SameFile(fa, fb)
 }
 
 func setDefaults(v *viper.Viper) {

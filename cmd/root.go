@@ -39,7 +39,7 @@ func Execute() {
 func init() {
 	defaults := config.Default()
 
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default: $HOME/.fcvm.yaml)")
+	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "read only this config file, ignoring ./.fcvm.yaml and $HOME/.fcvm.yaml (default: ./.fcvm.yaml layered over $HOME/.fcvm.yaml)")
 	rootCmd.PersistentFlags().String("state-dir", defaults.StateDir, "state directory")
 	rootCmd.PersistentFlags().String("firecracker-bin", defaults.FirecrackerBin, "firecracker binary path")
 	rootCmd.PersistentFlags().String("jailer-bin", defaults.JailerBin, "jailer binary path")
