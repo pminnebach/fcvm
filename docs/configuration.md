@@ -21,6 +21,11 @@ When fcvm runs in a directory that contains `.fcvm.yaml`, that **Directory confi
 - If the current directory can't be determined or read, there is no Directory config and no error.
 - `--config <path>` is exclusive: only that file is read, neither the Directory config nor the User config is, and a missing file is an error.
 
+### Seeing which files were used
+
+- With `--verbose`, each Config file read is logged at debug level with its role (`User config`, `Directory config` or `explicit --config`), in the order read.
+- `fcvm self-check` prints a `config files:` line listing the files used, or `none`. It prints this before the `/dev/kvm` and root checks, so the line shows even when self-check skips.
+
 Hyphens and dots in keys become underscores in env names: `network.tap-ip` → `FCVM_NETWORK_TAP_IP`, `vcpu-count` → `FCVM_VCPU_COUNT`.
 
 `~` in paths expands using `SUDO_USER`’s home when present, otherwise the current user’s home.

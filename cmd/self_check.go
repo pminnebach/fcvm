@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -14,6 +15,11 @@ var selfCheckCmd = &cobra.Command{
 	Short: "Run integration self-check (requires KVM and root)",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		files := "none"
+		if len(cfgFiles) > 0 {
+			files = strings.Join(cfgFiles, ", ")
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "config files: %s\n", files)
 		if _, err := os.Stat("/dev/kvm"); err != nil {
 			fmt.Fprintln(cmd.OutOrStdout(), "skip: /dev/kvm not available")
 			return nil
