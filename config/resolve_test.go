@@ -380,3 +380,32 @@ func TestResolveDirectoryConfigMayPinKernelRootfsAndBinaries(t *testing.T) {
 		t.Fatalf("Directory config values not applied: %+v", c)
 	}
 }
+
+func TestResolveDirectoryConfigNotARegularFileIsAnError(t *testing.T) {
+	for name, setup := range map[string]func(p string){
+		"directory":        func(p string) { _ = os.Mkdir(p, 0o755) },
+		"dangling symlink": func(p string) { _ = os.Symlink("/nonexistent/target", p) },
+	} {
+		cwd, home := t.TempDir(), t.TempDir()
+		setup(filepath.Join(cwd, ".fcvm.yaml"))
+		_, _, err := Resolve(viper.New(), ResolveInput{Cwd: cwd, Home: home, UID: os.Getuid()})
+		if err == nil || !strings.Contains(err.Error(), ".fcvm.yaml") || !strings.Contains(err.Error(), "exists but cannot be used") {
+			t.Errorf("%s: want 'exists but cannot be used' error naming file, got %v", name, err)
+		}
+	}
+}
+
+func TestResolveFollowsSymlinkToRegularFile(t *testing.T) {
+	cwd, home, other := t.TempDir(), t.TempDir(), t.TempDir()
+	target := filepath.Join(other, "real.yaml")
+	if err := os.WriteFile(target, []byte("vcpu-count: 7\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(cwd, ".fcvm.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	c, _, err := Resolve(viper.New(), ResolveInput{Cwd: cwd, Home: home, UID: os.Getuid()})
+	if err != nil || c.VCPUCount != 7 {
+		t.Fatalf("got vcpu %d, err %v", c.VCPUCount, err)
+	}
+}

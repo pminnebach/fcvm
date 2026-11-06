@@ -36,6 +36,8 @@ fcvm runs as root, and a config file decides which binaries it runs (`firecracke
 
 Otherwise the command fails with an error naming the file and the reason: wrong owner, or group- or world-writable. This stops `cd`-ing into someone else's checkout and running `sudo fcvm ...` from executing their binary as root. Fix it by taking ownership (`chown`) or removing the write bits (`chmod go-w .fcvm.yaml`).
 
+If `.fcvm.yaml` is a symlink to a regular file it is followed, and the link target's owner and mode are what is checked. A `.fcvm.yaml` that exists but is not a regular file (a directory, a dangling symlink) is an error naming the file, not ignored.
+
 The check applies only to a file found by the current-directory search. It does not apply to the User config, to `--config`, or when the current directory is home.
 
 ### Seeing which files were used

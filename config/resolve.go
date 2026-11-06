@@ -1,7 +1,9 @@
 package config
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +11,9 @@ import (
 	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
 )
+
+// ConfigFileName is the name of the User config and the Directory config.
+const ConfigFileName = ".fcvm.yaml"
 
 // ResolveInput is everything config resolution needs from the environment of
 // the run, passed in so resolution does not read process-global state.
@@ -45,42 +50,57 @@ type ResolveInput struct {
 func Resolve(v *viper.Viper, in ResolveInput) (Config, []string, error) {
 	setDefaults(v)
 
-	var files []string
+	var layers []layer
 	if in.ConfigFile != "" {
-		if err := readLayer(v, in.ConfigFile); err != nil {
+		l, err := loadLayer(in.ConfigFile, nil)
+		if err != nil {
 			return Default(), nil, err
 		}
-		files = []string{in.ConfigFile}
+		layers = []layer{l}
 	} else {
-		for _, f := range searchFiles(in) {
-			if isDirectoryConfig(in, f) {
-				if err := checkDirectoryConfigTrust(f, in.UID); err != nil {
-					return Default(), nil, err
-				}
+		found, err := searchFiles(in)
+		if err != nil {
+			return Default(), nil, err
+		}
+		for _, f := range found {
+			var trustUID *int
+			dirCfg := isDirectoryConfig(in, f)
+			if dirCfg {
+				trustUID = &in.UID
 			}
-			if err := readLayer(v, f); err != nil {
+			l, err := loadLayer(f, trustUID)
+			if err != nil {
 				return Default(), nil, err
 			}
-			if isDirectoryConfig(in, f) {
-				if err := refuseStateDir(f); err != nil {
+			if dirCfg {
+				if err := refuseStateDir(l); err != nil {
 					return Default(), nil, err
 				}
 			}
-			files = append(files, f)
+			layers = append(layers, l)
 		}
+	}
+
+	var files []string
+	for _, l := range layers {
+		v.SetConfigType("yaml")
+		if err := v.MergeConfig(bytes.NewReader(l.data)); err != nil {
+			return Default(), nil, fmt.Errorf("config file %s: %w", l.path, err)
+		}
+		files = append(files, l.path)
 	}
 
 	c := Default()
 	if err := v.Unmarshal(&c); err != nil {
 		return c, files, fmt.Errorf("config file %s: %w", strings.Join(files, ", "), err)
 	}
-	// viper lowercases env names, so re-read every file used and merge env
-	// per key in order; later files win.
+	// viper lowercases env names, so take env straight from each file's
+	// bytes and merge per key in order; later files win.
 	c.Env = map[string]string{}
-	for _, f := range files {
-		env, err := rawConfigEnv(f)
+	for _, l := range layers {
+		env, err := rawConfigEnv(l.data)
 		if err != nil {
-			return c, files, err
+			return c, files, fmt.Errorf("config file %s: %w", l.path, err)
 		}
 		for k, val := range env {
 			c.Env[k] = val
@@ -98,37 +118,58 @@ func Resolve(v *viper.Viper, in ResolveInput) (Config, []string, error) {
 	return c, files, nil
 }
 
-// readLayer checks one Config file on its own (read, parse, decode) so any
-// failure names that file, then merges it into v on top of what is already
-// there.
-func readLayer(v *viper.Viper, path string) error {
+// layer is one Config file's path and the bytes read from it, once.
+type layer struct {
+	path string
+	data []byte
+	own  *viper.Viper
+}
+
+// loadLayer opens path once, and when trustUID is set checks the open file's
+// owner and mode before reading it, so the bytes used are the bytes checked.
+// It then parses and decodes the bytes on their own so any failure names
+// this file.
+func loadLayer(path string, trustUID *int) (layer, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return layer{}, fmt.Errorf("config file %s: %w", path, err)
+	}
+	defer f.Close()
+	if trustUID != nil {
+		fi, err := f.Stat()
+		if err != nil {
+			return layer{}, fmt.Errorf("config file %s: %w", path, err)
+		}
+		if err := checkDirectoryConfigTrust(path, fi, *trustUID); err != nil {
+			return layer{}, err
+		}
+	}
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return layer{}, fmt.Errorf("config file %s: %w", path, err)
+	}
 	own := viper.New()
-	own.SetConfigFile(path)
 	own.SetConfigType("yaml")
-	if err := own.ReadInConfig(); err != nil {
-		return fmt.Errorf("config file %s: %w", path, err)
+	if err := own.ReadConfig(bytes.NewReader(data)); err != nil {
+		return layer{}, fmt.Errorf("config file %s: %w", path, err)
 	}
 	if err := own.Unmarshal(&Config{}); err != nil {
-		return fmt.Errorf("config file %s: %w", path, err)
+		return layer{}, fmt.Errorf("config file %s: %w", path, err)
 	}
-	v.SetConfigFile(path)
-	v.SetConfigType("yaml")
-	if err := v.MergeInConfig(); err != nil {
-		return fmt.Errorf("config file %s: %w", path, err)
-	}
-	return nil
+	return layer{path: path, data: data, own: own}, nil
 }
 
 // searchFiles lists the Config files to read without --config, lowest
-// precedence first: the User config, then the Directory config. Only files
-// that exist are returned.
-func searchFiles(in ResolveInput) []string {
+// precedence first: the User config, then the Directory config. A missing
+// file is skipped; one that exists but is not a regular file (or a symlink to
+// one) is an error naming it. Symlinks are followed.
+func searchFiles(in ResolveInput) ([]string, error) {
 	var user, dir string
 	if in.Home != "" {
-		user = filepath.Join(in.Home, ".fcvm.yaml")
+		user = filepath.Join(in.Home, ConfigFileName)
 	}
 	if in.Cwd != "" {
-		dir = filepath.Join(in.Cwd, ".fcvm.yaml")
+		dir = filepath.Join(in.Cwd, ConfigFileName)
 	}
 	if user != "" && dir != "" && sameFile(user, dir) {
 		dir = ""
@@ -138,11 +179,19 @@ func searchFiles(in ResolveInput) []string {
 		if f == "" {
 			continue
 		}
-		if fi, err := os.Stat(f); err == nil && fi.Mode().IsRegular() {
-			out = append(out, f)
+		if _, err := os.Lstat(f); err != nil {
+			continue // missing (or unreachable directory): no file
 		}
+		fi, err := os.Stat(f)
+		if err != nil {
+			return nil, fmt.Errorf("config file %s: exists but cannot be used: %w", f, err)
+		}
+		if !fi.Mode().IsRegular() {
+			return nil, fmt.Errorf("config file %s: exists but cannot be used: not a regular file", f)
+		}
+		out = append(out, f)
 	}
-	return out
+	return out, nil
 }
 
 // isDirectoryConfig reports whether path, a file from searchFiles, is the
@@ -153,25 +202,19 @@ func isDirectoryConfig(in ResolveInput, path string) bool {
 	if in.ConfigFile != "" || in.Cwd == "" {
 		return false
 	}
-	if in.Home != "" && sameFile(path, filepath.Join(in.Home, ".fcvm.yaml")) {
+	if in.Home != "" && sameFile(path, filepath.Join(in.Home, ConfigFileName)) {
 		return false
 	}
-	return sameFile(path, filepath.Join(in.Cwd, ".fcvm.yaml"))
+	return sameFile(path, filepath.Join(in.Cwd, ConfigFileName))
 }
 
-// refuseStateDir fails when the Directory config at path sets state-dir. It
-// checks that file on its own, so state-dir from a flag, FCVM_* variable or
-// the User config never trips it. One state directory per user keeps
-// list/stop/delete consistent and network slots from being handed out twice.
-func refuseStateDir(path string) error {
-	own := viper.New()
-	own.SetConfigFile(path)
-	own.SetConfigType("yaml")
-	if err := own.ReadInConfig(); err != nil {
-		return fmt.Errorf("config file %s: %w", path, err)
-	}
-	if own.InConfig("state-dir") {
-		return fmt.Errorf("config file %s: state-dir is not allowed in a Directory config (set it in the User config, with --config, or with a flag or FCVM_STATE_DIR)", path)
+// refuseStateDir fails when the Directory config l sets state-dir. It checks
+// that file on its own, so state-dir from a flag, FCVM_* variable or the User
+// config never trips it. One state directory per user keeps list/stop/delete
+// consistent and network slots from being handed out twice.
+func refuseStateDir(l layer) error {
+	if l.own.InConfig("state-dir") {
+		return fmt.Errorf("config file %s: state-dir is not allowed in a Directory config (set it in the User config, with --config, or with a flag or FCVM_STATE_DIR)", l.path)
 	}
 	return nil
 }
@@ -221,17 +264,10 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("network.nameservers", defaults.Network.Nameservers)
 }
 
-// rawConfigEnv re-reads the Config file's env section directly, bypassing
-// viper's key-lowercasing (viper lowercases every key it reads, including
-// map values nested under env:) so uppercase env var names survive.
-func rawConfigEnv(path string) (map[string]string, error) {
-	if path == "" {
-		return nil, nil
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
+// rawConfigEnv reads the Config file's env section directly from its bytes,
+// bypassing viper's key-lowercasing (viper lowercases every key it reads,
+// including map values nested under env:) so uppercase env var names survive.
+func rawConfigEnv(data []byte) (map[string]string, error) {
 	var doc struct {
 		Env map[string]string `yaml:"env"`
 	}

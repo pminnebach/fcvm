@@ -2,6 +2,7 @@
 
 | Version | Date | Summary |
 |---------|------|---------|
+| [Unreleased](release_notes_unreleased.md) | - | Directory config layered over the User config; trust check and `state-dir` refusal for the Directory config |
 | [v1.3.0](release_notes_v1.3.0.md) | 2026-10-14 | `stop` keeps the VM; `start <id>`, `restart`, `delete`; stopped/crashed statuses; fix VMs dying after `start` |
 | [v1.2.2](release_notes_v1.2.2.md) | 2026-09-14 | Fix uppercase `.fcvm.yaml` env vars getting lowercased in the guest |
 | [v1.2.1](release_notes_v1.2.1.md) | 2026-09-14 | Fix `shell`/`exec` failing right after `start` with "No route to host" |

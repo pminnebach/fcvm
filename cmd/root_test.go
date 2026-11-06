@@ -3,6 +3,7 @@ package cmd
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/viper"
@@ -90,5 +91,22 @@ func TestMountFlagRejectsUnknownOptions(t *testing.T) {
 		if m, err := mountFlag(bad); err == nil {
 			t.Errorf("mountFlag(%q) = %+v, want an error", bad, m)
 		}
+	}
+}
+
+func TestInvokingUIDRejectsInvalidSudoUID(t *testing.T) {
+	for _, bad := range []string{"abc", "-1", "1.5"} {
+		t.Setenv("SUDO_UID", bad)
+		if _, err := invokingUID(); err == nil || !strings.Contains(err.Error(), "SUDO_UID") {
+			t.Errorf("SUDO_UID=%q: want error naming SUDO_UID, got %v", bad, err)
+		}
+	}
+	t.Setenv("SUDO_UID", "1234")
+	if uid, err := invokingUID(); err != nil || uid != 1234 {
+		t.Errorf("got %d, %v; want 1234", uid, err)
+	}
+	t.Setenv("SUDO_UID", "")
+	if uid, err := invokingUID(); err != nil || uid != os.Geteuid() {
+		t.Errorf("got %d, %v; want euid", uid, err)
 	}
 }

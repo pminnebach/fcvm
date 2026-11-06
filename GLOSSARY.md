@@ -35,3 +35,15 @@ _Avoid_: resume, restore
 **Restart**:
 Stop a running VM and start it again, or start it if it is already stopped.
 _Avoid_: reboot, recreate
+
+**Config file**:
+A YAML file fcvm reads its settings from: the User config, the Directory config, or the one named by `--config`.
+_Avoid_: settings file, rc file
+
+**User config**:
+`~/.fcvm.yaml` in the invoking user's home (the `SUDO_USER` home under sudo). The lowest-precedence Config file.
+_Avoid_: global config, home config
+
+**Directory config**:
+`./.fcvm.yaml` in the exact current directory, never its parents. It is layered over the User config, and must be trusted (owned by the invoking user or root, not group- or world-writable) because fcvm runs as root.
+_Avoid_: local config, project config

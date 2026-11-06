@@ -131,11 +131,15 @@ func resolveConfig() (config.Config, []string, error) {
 	if err != nil {
 		home = ""
 	}
+	uid, err := invokingUID()
+	if err != nil {
+		return config.Default(), nil, err
+	}
 	in := config.ResolveInput{
 		ConfigFile: cfgFile,
 		Cwd:        cwd,
 		Home:       home,
-		UID:        invokingUID(),
+		UID:        uid,
 	}
 	c, files, err := config.Resolve(viper.GetViper(), in)
 	if v, _ := rootCmd.PersistentFlags().GetBool("verbose"); v || viper.GetBool("verbose") {
@@ -148,14 +152,17 @@ func resolveConfig() (config.Config, []string, error) {
 }
 
 // invokingUID is the user who ran fcvm: the SUDO_UID user under sudo,
-// otherwise the effective uid.
-func invokingUID() int {
+// otherwise the effective uid. An invalid SUDO_UID is an error: falling back
+// to the effective uid (root under sudo) would trust the wrong owner.
+func invokingUID() (int, error) {
 	if s := os.Getenv("SUDO_UID"); s != "" {
-		if uid, err := strconv.Atoi(s); err == nil {
-			return uid
+		uid, err := strconv.Atoi(s)
+		if err != nil || uid < 0 {
+			return 0, fmt.Errorf("invalid SUDO_UID %q: must be a non-negative integer", s)
 		}
+		return uid, nil
 	}
-	return os.Geteuid()
+	return os.Geteuid(), nil
 }
 
 // mountFlag parses host:guest[:opt[,opt...]] where opt is ro, rw,
