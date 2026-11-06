@@ -27,6 +27,17 @@ A Directory config that sets `state-dir` is refused: the command fails with an e
 
 `state-dir` still works from the `--state-dir` flag, `FCVM_STATE_DIR`, the User config and an explicit `--config` file. Every other key, including the binary paths, `kernel` and `rootfs`, is allowed in a Directory config.
 
+### Trusting the Directory config
+
+fcvm runs as root, and a config file decides which binaries it runs (`firecracker-bin`, `jailer-bin`, `guest-agent-bin`). So a Directory config is only trusted when:
+
+- it is owned by the invoking user or by root. The invoking user is the `SUDO_UID` user under sudo, otherwise the effective uid; and
+- it has no group or other write bit.
+
+Otherwise the command fails with an error naming the file and the reason: wrong owner, or group- or world-writable. This stops `cd`-ing into someone else's checkout and running `sudo fcvm ...` from executing their binary as root. Fix it by taking ownership (`chown`) or removing the write bits (`chmod go-w .fcvm.yaml`).
+
+The check applies only to a file found by the current-directory search. It does not apply to the User config, to `--config`, or when the current directory is home.
+
 Hyphens and dots in keys become underscores in env names: `network.tap-ip` → `FCVM_NETWORK_TAP_IP`, `vcpu-count` → `FCVM_VCPU_COUNT`.
 
 `~` in paths expands using `SUDO_USER`’s home when present, otherwise the current user’s home.

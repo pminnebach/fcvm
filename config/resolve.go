@@ -21,7 +21,8 @@ type ResolveInput struct {
 	// Home is the user's home (UserHomeDir, SUDO_USER-aware); empty when it
 	// can't be determined.
 	Home string
-	// UID is the invoking user's uid. Not used yet.
+	// UID is the invoking user's uid (SUDO_UID under sudo, else the effective
+	// uid); a Directory config must be owned by it or by root.
 	UID int
 }
 
@@ -52,6 +53,11 @@ func Resolve(v *viper.Viper, in ResolveInput) (Config, []string, error) {
 		files = []string{in.ConfigFile}
 	} else {
 		for _, f := range searchFiles(in) {
+			if isDirectoryConfig(in, f) {
+				if err := checkDirectoryConfigTrust(f, in.UID); err != nil {
+					return Default(), nil, err
+				}
+			}
 			if err := readLayer(v, f); err != nil {
 				return Default(), nil, err
 			}
@@ -140,10 +146,11 @@ func searchFiles(in ResolveInput) []string {
 }
 
 // isDirectoryConfig reports whether path, a file from searchFiles, is the
-// Directory config rather than the User config (when the current directory is
-// the home directory the one file is the User config).
+// Directory config: the file found by the current-directory search, not the
+// --config file and not the User config (when the current directory is the
+// home directory the one file is the User config).
 func isDirectoryConfig(in ResolveInput, path string) bool {
-	if in.Cwd == "" {
+	if in.ConfigFile != "" || in.Cwd == "" {
 		return false
 	}
 	if in.Home != "" && sameFile(path, filepath.Join(in.Home, ".fcvm.yaml")) {
