@@ -42,8 +42,8 @@ func TestMountFlagOptions(t *testing.T) {
 }
 
 // Viper lowercases every key it reads from the config file, including map
-// values nested under env:. loadConfig must recover the original casing so
-// uppercase env var names from .fcvm.yaml survive, matching the --env CLI
+// values nested under env:. Config resolution must recover the original casing
+// so uppercase env var names from .fcvm.yaml survive, matching the --env CLI
 // flag path (which bypasses viper and is unaffected).
 func TestLoadConfigPreservesEnvCase(t *testing.T) {
 	viper.Reset()
@@ -56,12 +56,11 @@ func TestLoadConfigPreservesEnvCase(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	viper.SetConfigFile(path)
-	if err := viper.ReadInConfig(); err != nil {
-		t.Fatal(err)
-	}
+	prev := cfgFile
+	cfgFile = path
+	t.Cleanup(func() { cfgFile = prev })
 
-	c, err := loadConfig()
+	c, err := resolveConfig()
 	if err != nil {
 		t.Fatal(err)
 	}

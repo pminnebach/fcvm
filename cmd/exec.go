@@ -15,10 +15,7 @@ var execCmd = &cobra.Command{
 	Short: "Run a command inside a microVM via SSH",
 	Args:  cobra.MinimumNArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		c, err := loadConfig()
-		if err != nil {
-			return err
-		}
+		c := cfg
 		id := args[0]
 		cmdArgs := args[1:]
 		if cmdArgs[0] == "--" {
@@ -45,10 +42,7 @@ var shellCmd = &cobra.Command{
 	Short: "Open an interactive SSH shell in a microVM",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		c, err := loadConfig()
-		if err != nil {
-			return err
-		}
+		c := cfg
 		state, err := vm.RunningState(c.StateDir, args[0])
 		if err != nil {
 			return err
@@ -70,10 +64,7 @@ var attachCmd = &cobra.Command{
 	Short: "Tail the microVM serial log (debug)",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		c, err := loadConfig()
-		if err != nil {
-			return err
-		}
+		c := cfg
 		state, err := vm.RunningState(c.StateDir, args[0])
 		if err != nil {
 			return err

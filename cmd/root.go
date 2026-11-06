@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"gopkg.in/yaml.v3"
 
 	"github.com/pminnebach/fcvm/config"
 )
@@ -37,7 +37,6 @@ func Execute() {
 }
 
 func init() {
-	cobra.OnInitialize(initConfig)
 	defaults := config.Default()
 
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default: $HOME/.fcvm.yaml)")
@@ -92,103 +91,44 @@ func init() {
 		case "experimental", "version", "help", "completion":
 			return nil
 		}
-		c, err := loadConfig()
+		c, err := resolveConfig()
 		if err != nil {
 			return err
 		}
+		cfg = c
 		return confirmExperimental(cmd, c, experimentalReasons(cmd, c))
 	}
 }
 
-func initConfig() {
-	defaults := config.Default()
-	viper.SetDefault("state-dir", defaults.StateDir)
-	viper.SetDefault("firecracker-bin", defaults.FirecrackerBin)
-	viper.SetDefault("jailer-bin", defaults.JailerBin)
-	viper.SetDefault("jailer.chroot-base-dir", defaults.Jailer.ChrootBaseDir)
-	viper.SetDefault("jailer.uid", defaults.Jailer.UID)
-	viper.SetDefault("jailer.gid", defaults.Jailer.GID)
-	viper.SetDefault("jailer.per-vm-uids", defaults.Jailer.PerVMUIDs)
-	viper.SetDefault("jailer.numa-node", defaults.Jailer.NumaNode)
-	viper.SetDefault("jailer.daemonize", defaults.Jailer.Daemonize)
-	viper.SetDefault("jailer.parent-cgroup", defaults.Jailer.ParentCgroup)
-	viper.SetDefault("kernel", defaults.Kernel)
-	viper.SetDefault("kernel-url", defaults.KernelURL)
-	viper.SetDefault("kernel-args", defaults.KernelArgs)
-	viper.SetDefault("rootfs", defaults.Rootfs)
-	viper.SetDefault("log-level", defaults.LogLevel)
-	viper.SetDefault("cpu-template", defaults.CPUTemplate)
-	viper.SetDefault("disable-smt", defaults.DisableSMT)
-	viper.SetDefault("vcpu-count", defaults.VCPUCount)
-	viper.SetDefault("mem-size-mib", defaults.MemSizeMib)
-	viper.SetDefault("ssh-key", defaults.SSHKey)
-	viper.SetDefault("guest-agent-bin", defaults.GuestAgentBin)
-	viper.SetDefault("enable-vsock", defaults.EnableVsock)
-	viper.SetDefault("enable-experimental", defaults.EnableExperimental)
-	viper.SetDefault("wait-timeout", defaults.WaitTimeoutSec)
-	viper.SetDefault("stop-timeout", defaults.StopTimeoutSec)
-	viper.SetDefault("network.tap-ip", defaults.Network.TapIP)
-	viper.SetDefault("network.guest-ip", defaults.Network.GuestIP)
-	viper.SetDefault("network.cni-network", defaults.Network.CNINetwork)
-	viper.SetDefault("network.nameservers", defaults.Network.Nameservers)
-
-	if cfgFile != "" {
-		viper.SetConfigFile(cfgFile)
-	} else {
-		home, err := config.UserHomeDir()
-		if err == nil {
-			viper.AddConfigPath(home)
-			viper.SetConfigName(".fcvm")
-			viper.SetConfigType("yaml")
-		}
-		viper.AddConfigPath(".")
-	}
-	_ = viper.ReadInConfig()
-}
-
-func loadConfig() (config.Config, error) {
-	c := config.Default()
-	if err := viper.Unmarshal(&c); err != nil {
-		return c, err
-	}
-	if c.Env == nil {
-		c.Env = map[string]string{}
-	}
-	if env, err := rawConfigEnv(); err != nil {
-		return c, err
-	} else if env != nil {
-		c.Env = env
-	}
-	c.StateDir = config.ExpandPath(c.StateDir)
-	c.FirecrackerBin = config.ExpandPath(c.FirecrackerBin)
-	c.JailerBin = config.ExpandPath(c.JailerBin)
-	c.Jailer.ChrootBaseDir = config.ExpandPath(c.Jailer.ChrootBaseDir)
-	c.Kernel = config.ExpandPath(c.Kernel)
-	c.Rootfs = config.ExpandPath(c.Rootfs)
-	c.SSHKey = config.ExpandPath(c.SSHKey)
-	c.GuestAgentBin = config.ExpandPath(c.GuestAgentBin)
-	return c, nil
-}
-
-// rawConfigEnv re-reads the config file's env section directly, bypassing
-// viper's key-lowercasing (viper lowercases every key it reads, including
-// map values nested under env:) so uppercase env var names survive.
-func rawConfigEnv() (map[string]string, error) {
-	path := viper.ConfigFileUsed()
-	if path == "" {
-		return nil, nil
-	}
-	data, err := os.ReadFile(path)
+// resolveConfig gathers this run's inputs and resolves the Config against the
+// flag and FCVM_* environment layers bound on the global viper.
+func resolveConfig() (config.Config, error) {
+	cwd, err := os.Getwd()
 	if err != nil {
-		return nil, err
+		cwd = ""
 	}
-	var doc struct {
-		Env map[string]string `yaml:"env"`
+	home, err := config.UserHomeDir()
+	if err != nil {
+		home = ""
 	}
-	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return nil, err
+	c, _, err := config.Resolve(viper.GetViper(), config.ResolveInput{
+		ConfigFile: cfgFile,
+		Cwd:        cwd,
+		Home:       home,
+		UID:        invokingUID(),
+	})
+	return c, err
+}
+
+// invokingUID is the user who ran fcvm: the SUDO_UID user under sudo,
+// otherwise the effective uid.
+func invokingUID() int {
+	if s := os.Getenv("SUDO_UID"); s != "" {
+		if uid, err := strconv.Atoi(s); err == nil {
+			return uid
+		}
 	}
-	return doc.Env, nil
+	return os.Geteuid()
 }
 
 // mountFlag parses host:guest[:opt[,opt...]] where opt is ro, rw,

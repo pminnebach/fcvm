@@ -17,10 +17,7 @@ var vsockExecCmd = &cobra.Command{
 	Short: "Run a command inside a microVM via vsock (experimental)",
 	Args:  cobra.MinimumNArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		c, err := loadConfig()
-		if err != nil {
-			return err
-		}
+		c := cfg
 		id := args[0]
 		cmdArgs := args[1:]
 		if cmdArgs[0] == "--" {

@@ -26,10 +26,7 @@ var downloadFirecrackerCmd = &cobra.Command{
 	Short: "Download latest firecracker and jailer release binaries",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		c, err := loadConfig()
-		if err != nil {
-			return err
-		}
+		c := cfg
 		dest := filepath.Dir(c.FirecrackerBin)
 		ver, err := assets.DownloadFirecracker(cmd.Context(), dest)
 		if err != nil {
@@ -45,10 +42,7 @@ var downloadJailerCmd = &cobra.Command{
 	Short: "Download jailer from release (or build with --build)",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		c, err := loadConfig()
-		if err != nil {
-			return err
-		}
+		c := cfg
 		dest := filepath.Dir(c.JailerBin)
 		build, _ := cmd.Flags().GetBool("build")
 		if build {
@@ -72,15 +66,13 @@ var downloadKernelCmd = &cobra.Command{
 	Short: "Download kernel (Firecracker CI latest by default)",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		c, err := loadConfig()
-		if err != nil {
-			return err
-		}
+		c := cfg
 		url, _ := cmd.Flags().GetString("url")
 		if url == "" {
 			url = c.KernelURL
 		}
 		if url == "" {
+			var err error
 			url, err = assets.LatestFirecrackerKernelURL(cmd.Context())
 			if err != nil {
 				return fmt.Errorf("kernel URL: %w (pass --url or set kernel-url)", err)
@@ -99,10 +91,7 @@ var downloadRootfsCmd = &cobra.Command{
 	Short: "Download rootfs from URL",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		c, err := loadConfig()
-		if err != nil {
-			return err
-		}
+		c := cfg
 		url, _ := cmd.Flags().GetString("url")
 		size, _ := cmd.Flags().GetString("size")
 		if err := assets.DownloadRootfs(cmd.Context(), url, c.Rootfs, size, fetchOptions(cmd)); err != nil {
@@ -118,10 +107,7 @@ var downloadGuestAgentCmd = &cobra.Command{
 	Short: "Download fcvm-guest-agent (experimental)",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		c, err := loadConfig()
-		if err != nil {
-			return err
-		}
+		c := cfg
 		url, _ := cmd.Flags().GetString("url")
 		if url != "" {
 			if err := assets.DownloadGuestAgentURL(cmd.Context(), url, c.GuestAgentBin, fetchOptions(cmd)); err != nil {

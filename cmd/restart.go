@@ -13,10 +13,7 @@ var restartCmd = &cobra.Command{
 	Short: "Stop a VM if it is running, then start it again from its disk",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		c, err := loadConfig()
-		if err != nil {
-			return err
-		}
+		c := cfg
 		state, err := vm.NewManager(c).Restart(cmd.Context(), args[0])
 		if err != nil {
 			return err

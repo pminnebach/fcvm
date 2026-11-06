@@ -14,10 +14,7 @@ var buildRootfsCmd = &cobra.Command{
 	Short: "Build a rootfs ext4 image from a Dockerfile",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		c, err := loadConfig()
-		if err != nil {
-			return err
-		}
+		c := cfg
 		dockerfile, _ := cmd.Flags().GetString("dockerfile")
 		tag, _ := cmd.Flags().GetString("tag")
 		if tag == "" {

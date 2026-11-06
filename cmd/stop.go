@@ -13,10 +13,7 @@ var stopCmd = &cobra.Command{
 	Short: "Stop a VM, keeping its disk so it can be started again",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		c, err := loadConfig()
-		if err != nil {
-			return err
-		}
+		c := cfg
 		if err := vm.NewManager(c).Stop(args[0]); err != nil {
 			return err
 		}
