@@ -41,7 +41,12 @@ func LinkExists(dev string) bool {
 // SetupTap creates the VM's TAP device and the forwarding and NAT rules for
 // its subnet. Rules live in a dedicated FCVM chain so teardown can remove
 // exactly what was added, and so the host's own FORWARD policy is left alone.
-func SetupTap(tapDev, tapIP, guestIP, hostIface string) (err error) {
+//
+// The device is owned by the jailer's uid/gid: Firecracker drops to those
+// before it attaches (TUNSETIFF), and since Linux 6.5 ("tun: fix group
+// permission check") a TAP with no owner or group can only be attached with
+// CAP_NET_ADMIN. Owning it also stops other local users from taking it over.
+func SetupTap(tapDev, tapIP, guestIP, hostIface string, uid, gid int) (err error) {
 	if LinkExists(tapDev) {
 		return fmt.Errorf("tap device %s already exists; another VM is likely using it", tapDev)
 	}
@@ -49,7 +54,8 @@ func SetupTap(tapDev, tapIP, guestIP, hostIface string) (err error) {
 	if err != nil {
 		return err
 	}
-	if err := run("ip", "tuntap", "add", "dev", tapDev, "mode", "tap"); err != nil {
+	if err := run("ip", "tuntap", "add", "dev", tapDev, "mode", "tap",
+		"user", strconv.Itoa(uid), "group", strconv.Itoa(gid)); err != nil {
 		return fmt.Errorf("create tap %s: %w", tapDev, err)
 	}
 	// Undo a partial setup: SetupTap refuses to take over an existing device,
