@@ -1,6 +1,6 @@
 # Release notes
 
-## v1.3.1 (Unreleased)
+## v1.3.1 (2026-11-26)
 
 Patch release: in TAP mode, the TAP device is now owned by the VM's jailer user, so the jailed Firecracker can attach to it on Linux 6.5 and later. Earlier versions: [version history](https://github.com/pminnebach/fcvm/blob/main/docs/version_history.md).
 

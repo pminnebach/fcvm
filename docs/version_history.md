@@ -2,7 +2,7 @@
 
 | Version | Date | Summary |
 |---------|------|---------|
-| [v1.3.1](release_notes_v1.3.1.md) | Unreleased | Fix TAP-mode VMs failing to attach their TAP on Linux 6.5+; TAP owned by the jailer user |
+| [v1.3.1](release_notes_v1.3.1.md) | 2026-11-26 | Fix TAP-mode VMs failing to attach their TAP on Linux 6.5+; TAP owned by the jailer user |
 | [v1.3.0](release_notes_v1.3.0.md) | 2026-10-14 | `stop` keeps the VM; `start <id>`, `restart`, `delete`; stopped/crashed statuses; fix VMs dying after `start` |
 | [v1.2.2](release_notes_v1.2.2.md) | 2026-09-14 | Fix uppercase `.fcvm.yaml` env vars getting lowercased in the guest |
 | [v1.2.1](release_notes_v1.2.1.md) | 2026-09-14 | Fix `shell`/`exec` failing right after `start` with "No route to host" |
@@ -10,9 +10,9 @@
 | v1.1.0 | 2026-07-26 | Jailer/machine knobs; optional CNI; product docs tree |
 | v1.0.0 | 2026-07-17 | Initial CLI; GoReleaser; `fcvm version` |
 
-Full notes for the latest release: [release_notes_v1.3.0.md](release_notes_v1.3.0.md). Upcoming: [release_notes_v1.3.1.md](release_notes_v1.3.1.md).
+Full notes for the latest release: [release_notes_v1.3.1.md](release_notes_v1.3.1.md).
 
-## v1.3.1 (Unreleased)
+## v1.3.1 (2026-11-26)
 
 In TAP mode, the TAP device is now created owned by the VM's jailer uid/gid, so the jailed Firecracker can attach to it on Linux 6.5 and later (where an ownerless TAP needs `CAP_NET_ADMIN`), and other local users can no longer attach to it. See [release_notes_v1.3.1.md](release_notes_v1.3.1.md).
 
