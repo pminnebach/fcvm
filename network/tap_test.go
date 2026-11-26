@@ -98,7 +98,7 @@ func TestSetupTapNeverSetsChainPolicy(t *testing.T) {
 	})
 	defer restore()
 
-	if err := SetupTap("fcvm-tap-0", "172.16.0.1", "172.16.0.2", "eth0"); err != nil {
+	if err := SetupTap("fcvm-tap-0", "172.16.0.1", "172.16.0.2", "eth0", 1000, 1000); err != nil {
 		t.Fatal(err)
 	}
 	for _, c := range calls {
@@ -117,7 +117,7 @@ var errShouldNotExist = errors.New("Cannot find device")
 func TestSetupTapRefusesExistingDevice(t *testing.T) {
 	restore := SetRunner(func(name string, args ...string) error { return nil })
 	defer restore()
-	err := SetupTap("fcvm-tap-0", "172.16.0.1", "172.16.0.2", "eth0")
+	err := SetupTap("fcvm-tap-0", "172.16.0.1", "172.16.0.2", "eth0", 1000, 1000)
 	if err == nil {
 		t.Fatal("expected SetupTap to refuse a device that already exists")
 	}
@@ -142,7 +142,7 @@ func TestSetupTapCleansUpPartialSetup(t *testing.T) {
 	})
 	defer restore()
 
-	if err := SetupTap("fcvm-tap-0", "172.16.0.1", "172.16.0.2", "eth0"); err == nil {
+	if err := SetupTap("fcvm-tap-0", "172.16.0.1", "172.16.0.2", "eth0", 1000, 1000); err == nil {
 		t.Fatal("expected SetupTap to fail")
 	}
 	var deleted bool
@@ -180,5 +180,30 @@ func TestTapDevNameWithinLinuxLimit(t *testing.T) {
 	long := fmt.Sprintf("fcvm-tap-%s", "vm-1784063753")
 	if len(long) <= maxIfNameLen {
 		t.Fatalf("sanity: old naming should exceed limit, got len %d", len(long))
+	}
+}
+
+// Firecracker attaches to the TAP after the jailer drops privileges, so the
+// device must be owned by the jailer's uid/gid (an ownerless TAP needs
+// CAP_NET_ADMIN to attach on Linux >= 6.5).
+func TestSetupTapOwnsDeviceForJailer(t *testing.T) {
+	var add []string
+	restore := SetRunner(func(name string, args ...string) error {
+		if name == "ip" && len(args) > 1 && args[0] == "link" && args[1] == "show" {
+			return errShouldNotExist
+		}
+		if name == "ip" && len(args) > 1 && args[0] == "tuntap" && args[1] == "add" {
+			add = args
+		}
+		return nil
+	})
+	defer restore()
+
+	if err := SetupTap("fcvm-tap-3", "172.16.0.13", "172.16.0.14", "eth0", 1003, 1004); err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(add, " ")
+	if !strings.Contains(got, "user 1003") || !strings.Contains(got, "group 1004") {
+		t.Fatalf("tap not owned by the jailer: ip %s", got)
 	}
 }

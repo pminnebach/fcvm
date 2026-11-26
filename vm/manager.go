@@ -453,7 +453,7 @@ func (m *Manager) setupHostNetwork(s netSlot) error {
 	if err := m.ops.enableIPForward(m.cfg.StateDir); err != nil {
 		return fmt.Errorf("enable ip forwarding: %w", err)
 	}
-	if err := network.SetupTap(s.tapDev, s.tapIP, s.guestIP, s.hostIface); err != nil {
+	if err := network.SetupTap(s.tapDev, s.tapIP, s.guestIP, s.hostIface, s.jailerUID, s.jailerGID); err != nil {
 		m.releaseHostNetwork()
 		return err
 	}
